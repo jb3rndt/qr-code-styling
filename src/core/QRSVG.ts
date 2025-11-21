@@ -35,46 +35,53 @@ export default class QRSVG {
   _element: SVGElement;
   _defs: SVGElement;
   _options: RequiredOptions;
-  _qr?: QRCode;
+  _qr: QRCode;
   _image?: HTMLImageElement | Image;
   _imageUri?: string;
   _instanceId: number;
+  _dotSize: number;
+  _viewboxSize: { width: number; height: number };
 
   static instanceCount = 0;
 
   //TODO don't pass all options to this class
-  constructor(options: RequiredOptions, window: Window) {
+  constructor(options: RequiredOptions, window: Window, qr: QRCode, dotSize: number = 4) {
     this._window = window;
-    this._element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    this._element.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
-    if (!options.dotsOptions.roundSize) {
-      this._element.setAttribute("shape-rendering", "crispEdges");
-    }
-    this._element.setAttribute("viewBox", `0 0 ${options.width} ${options.height}`);
-    this._defs = this._window.document.createElementNS("http://www.w3.org/2000/svg", "defs");
-    this._element.appendChild(this._defs);
-    this._imageUri = options.image;
-    this._instanceId = QRSVG.instanceCount++;
     this._options = options;
+    this._qr = qr;
+    this._instanceId = QRSVG.instanceCount++;
+    this._dotSize = dotSize;
+    this._imageUri = options.image;
+
+    const circleMultiplier = this._options.shape === shapeTypes.circle ? Math.sqrt(2) : 1;
+    const aspectRatio = this._options.width / this._options.height;
+    const size = (this.moduleCount() * this._dotSize + this._options.margin * 2) * circleMultiplier;
+    this._viewboxSize = { width: Math.max(size * aspectRatio, size), height: Math.max(size / aspectRatio, size) };
+
+    const svgRoot = this._window.document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svgRoot.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+    if (!options.dotsOptions.roundSize) {
+      svgRoot.setAttribute("shape-rendering", "crispEdges");
+    }
+    svgRoot.setAttribute("viewBox", `0 0 ${this.viewboxSize().width} ${this.viewboxSize().height}`);
+    this._defs = this._window.document.createElementNS("http://www.w3.org/2000/svg", "defs");
+    svgRoot.appendChild(this._defs);
+    this._element = svgRoot;
   }
 
-  get width(): number {
-    return this._options.width;
-  }
-
-  get height(): number {
-    return this._options.height;
-  }
-
-  getElement(): SVGElement {
+  element(): SVGElement {
     return this._element;
   }
 
-  async drawQR(qr: QRCode): Promise<void> {
-    const count = qr.getModuleCount();
-    const minSize = Math.min(this._options.width, this._options.height) - this._options.margin * 2;
-    const realQRSize = this._options.shape === shapeTypes.circle ? minSize / Math.sqrt(2) : minSize;
-    const dotSize = this._roundSize(realQRSize / count);
+  moduleCount(): number {
+    return this._qr.getModuleCount();
+  }
+
+  viewboxSize(): { width: number; height: number } {
+    return this._viewboxSize;
+  }
+
+  async drawQR(): Promise<void> {
     let drawImageSize = {
       hideXDots: 0,
       hideYDots: 0,
@@ -82,43 +89,49 @@ export default class QRSVG {
       height: 0
     };
 
-    this._qr = qr;
-
     if (this._options.image) {
       //We need it to get image size
       await this.loadImage();
       if (!this._image) return;
       const { imageOptions, qrOptions } = this._options;
       const coverLevel = imageOptions.imageSize * errorCorrectionPercents[qrOptions.errorCorrectionLevel];
-      const maxHiddenDots = Math.floor(coverLevel * count * count);
+      const maxHiddenDots = Math.floor(coverLevel * this.moduleCount() * this.moduleCount());
 
       drawImageSize = calculateImageSize({
         originalWidth: this._image.width,
         originalHeight: this._image.height,
         maxHiddenDots,
-        maxHiddenAxisDots: count - 14,
-        dotSize
+        maxHiddenAxisDots: this.moduleCount() - 14,
+        dotSize: this._dotSize
       });
     }
 
-    this.drawBackground();
+    this.drawBackground({ backgroundOptions: this._options.backgroundOptions });
     this.drawDots((row: number, col: number): boolean => {
       if (this._options.imageOptions.hideBackgroundDots) {
         if (
-          row >= (count - drawImageSize.hideYDots) / 2 &&
-          row < (count + drawImageSize.hideYDots) / 2 &&
-          col >= (count - drawImageSize.hideXDots) / 2 &&
-          col < (count + drawImageSize.hideXDots) / 2
+          row >= (this.moduleCount() - drawImageSize.hideYDots) / 2 &&
+          row < (this.moduleCount() + drawImageSize.hideYDots) / 2 &&
+          col >= (this.moduleCount() - drawImageSize.hideXDots) / 2 &&
+          col < (this.moduleCount() + drawImageSize.hideXDots) / 2
         ) {
           return false;
         }
       }
 
-      if (squareMask[row]?.[col] || squareMask[row - count + 7]?.[col] || squareMask[row]?.[col - count + 7]) {
+      if (
+        squareMask[row]?.[col] ||
+        squareMask[row - this.moduleCount() + 7]?.[col] ||
+        squareMask[row]?.[col - this.moduleCount() + 7]
+      ) {
         return false;
       }
 
-      if (dotMask[row]?.[col] || dotMask[row - count + 7]?.[col] || dotMask[row]?.[col - count + 7]) {
+      if (
+        dotMask[row]?.[col] ||
+        dotMask[row - this.moduleCount() + 7]?.[col] ||
+        dotMask[row]?.[col - this.moduleCount() + 7]
+      ) {
         return false;
       }
 
@@ -127,71 +140,68 @@ export default class QRSVG {
     this.drawCorners();
 
     if (this._options.image) {
-      await this.drawImage({ width: drawImageSize.width, height: drawImageSize.height, count, dotSize });
+      await this.drawImage({
+        width: drawImageSize.width,
+        height: drawImageSize.height,
+        count: this.moduleCount(),
+        dotSize: this._dotSize
+      });
     }
   }
 
-  drawBackground(): void {
+  drawBackground({ backgroundOptions }: { backgroundOptions?: RequiredOptions["backgroundOptions"] }): void {
+    const { width, height } = this.viewboxSize();
     const element = this._element;
-    const options = this._options;
+    const gradientOptions = backgroundOptions?.gradient;
+    const color = backgroundOptions?.color;
 
-    if (element) {
-      const gradientOptions = options.backgroundOptions?.gradient;
-      const color = options.backgroundOptions?.color;
-      let height = options.height;
-      let width = options.width;
+    if (!element) {
+      return;
+    }
 
-      if (gradientOptions || color) {
-        const rect = this._window.document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    if (gradientOptions || color) {
+      const rect = this._window.document.createElementNS("http://www.w3.org/2000/svg", "rect");
 
-        if (options.backgroundOptions?.round) {
-          height = width = Math.min(options.width, options.height);
-          rect.setAttribute("rx", String((height / 2) * options.backgroundOptions.round));
-        }
-
-        rect.setAttribute("x", String(this._roundSize((options.width - width) / 2)));
-        rect.setAttribute("y", String(this._roundSize((options.height - height) / 2)));
+      if (backgroundOptions?.round) {
+        const minDim = Math.min(width, height);
+        rect.setAttribute("rx", String((minDim / 2) * backgroundOptions.round));
+        rect.setAttribute("x", String(this._roundSize((width - minDim) / 2)));
+        rect.setAttribute("y", String(this._roundSize((height - minDim) / 2)));
+        rect.setAttribute("width", String(minDim));
+        rect.setAttribute("height", String(minDim));
+      } else {
         rect.setAttribute("width", String(width));
         rect.setAttribute("height", String(height));
-
-        const gradientDefinition = this._newCreateColor({
-          options: gradientOptions,
-          additionalRotation: 0,
-          x: 0,
-          y: 0,
-          height: options.height,
-          width: options.width,
-          name: `background-color-${this._instanceId}`
-        });
-
-        if (gradientDefinition) {
-          rect.setAttribute("fill", `url('#background-color-${this._instanceId}')`);
-          this._defs.appendChild(gradientDefinition);
-        } else {
-          rect.setAttribute("fill", color || "transparent");
-        }
-        element.appendChild(rect);
       }
+
+      const colorId = `background-color-${this._instanceId}`;
+      const gradientDefinition = this._newCreateColor({
+        options: gradientOptions,
+        additionalRotation: 0,
+        x: 0,
+        y: 0,
+        height,
+        width,
+        name: colorId
+      });
+
+      if (gradientDefinition) {
+        rect.setAttribute("fill", `url('#${colorId}')`);
+        this._defs.appendChild(gradientDefinition);
+      } else if (color) {
+        rect.setAttribute("fill", color);
+      }
+      this._element.appendChild(rect);
     }
   }
 
   drawDots(filter?: FilterFunction): void {
-    if (!this._qr) {
-      throw "QR code is not defined";
-    }
-
     const options = this._options;
-    const count = this._qr.getModuleCount();
+    const count = this.moduleCount();
+    const { width, height } = this.viewboxSize();
 
-    if (count > options.width || count > options.height) {
-      throw "The canvas is too small.";
-    }
-
-    const minSize = Math.min(options.width, options.height) - options.margin * 2;
-    const realQRSize = options.shape === shapeTypes.circle ? minSize / Math.sqrt(2) : minSize;
-    const dotSize = this._roundSize(realQRSize / count);
-    const xBeginning = this._roundSize((options.width - count * dotSize) / 2);
-    const yBeginning = this._roundSize((options.height - count * dotSize) / 2);
+    const xBeginning = this._roundSize((width - count * this._dotSize) / 2);
+    const yBeginning = this._roundSize((height - count * this._dotSize) / 2);
     const dot = new QRDot({
       svg: this._element,
       type: options.dotsOptions.type,
@@ -218,9 +228,9 @@ export default class QRSVG {
         }
 
         dot.draw(
-          xBeginning + col * dotSize,
-          yBeginning + row * dotSize,
-          dotSize,
+          xBeginning + col * this._dotSize,
+          yBeginning + row * this._dotSize,
+          this._dotSize,
           (xOffset: number, yOffset: number): boolean => {
             if (col + xOffset < 0 || row + yOffset < 0 || col + xOffset >= count || row + yOffset >= count)
               return false;
@@ -242,10 +252,12 @@ export default class QRSVG {
     }
 
     if (options.shape === shapeTypes.circle) {
-      const additionalDots = this._roundSize((minSize / dotSize - count) / 2);
+      const additionalDots = this._roundSize(
+        ((Math.min(width, height) - this._options.margin * 2) / this._dotSize - count) / 2
+      );
       const fakeCount = count + additionalDots * 2;
-      const xFakeBeginning = xBeginning - additionalDots * dotSize;
-      const yFakeBeginning = yBeginning - additionalDots * dotSize;
+      const xFakeBeginning = xBeginning - additionalDots * this._dotSize;
+      const yFakeBeginning = yBeginning - additionalDots * this._dotSize;
       const fakeMatrix: number[][] = [];
       const center = this._roundSize(fakeCount / 2);
 
@@ -282,9 +294,9 @@ export default class QRSVG {
           if (!fakeMatrix[row][col]) continue;
 
           dot.draw(
-            xFakeBeginning + col * dotSize,
-            yFakeBeginning + row * dotSize,
-            dotSize,
+            xFakeBeginning + col * this._dotSize,
+            yFakeBeginning + row * this._dotSize,
+            this._dotSize,
             (xOffset: number, yOffset: number): boolean => {
               return !!fakeMatrix[row + yOffset]?.[col + xOffset];
             }
@@ -304,10 +316,7 @@ export default class QRSVG {
   }
 
   drawCorners(): void {
-    if (!this._qr) {
-      throw "QR code is not defined";
-    }
-
+    const { width, height } = this.viewboxSize();
     const element = this._element;
     const options = this._options;
 
@@ -316,13 +325,11 @@ export default class QRSVG {
     }
 
     const count = this._qr.getModuleCount();
-    const minSize = Math.min(options.width, options.height) - options.margin * 2;
-    const realQRSize = options.shape === shapeTypes.circle ? minSize / Math.sqrt(2) : minSize;
-    const dotSize = this._roundSize(realQRSize / count);
+    const dotSize = 4;
     const cornersSquareSize = dotSize * 7;
     const cornersDotSize = dotSize * 3;
-    const xBeginning = this._roundSize((options.width - count * dotSize) / 2);
-    const yBeginning = this._roundSize((options.height - count * dotSize) / 2);
+    const xBeginning = this._roundSize((width - count * dotSize) / 2);
+    const yBeginning = this._roundSize((height - count * dotSize) / 2);
 
     [
       [0, 0, 0],
