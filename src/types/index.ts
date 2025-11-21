@@ -1,5 +1,5 @@
+import nodeCanvas from "canvas";
 import { DOMWindow, JSDOM } from "jsdom";
-import nodeCanvas  from "canvas";
 
 export interface UnknownObject {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -173,6 +173,26 @@ export type BasicFigureDrawArgs = {
   y: number;
   size: number;
   rotation?: number;
+};
+
+export type Orientation = "topright" | "topleft" | "bottomleft" | "bottomright";
+
+export type SideOrientation = "top" | "left" | "right" | "bottom";
+
+export type RoundedCorners = "topleftbottomright" | "toprightbottomleft";
+
+export type OrientedFigureDrawArgs = {
+  x: number;
+  y: number;
+  size: number;
+  orientation?: Orientation;
+};
+
+export type SideOrientedFigureDrawArgs = {
+  x: number;
+  y: number;
+  size: number;
+  orientation?: SideOrientation;
 };
 
 export type RotateFigureArgs = {

@@ -1,5 +1,16 @@
 import dotTypes from "../../constants/dotTypes";
-import { DotType, GetNeighbor, DrawArgs, BasicFigureDrawArgs, RotateFigureArgs, Window } from "../../types";
+import {
+  BasicFigureDrawArgs,
+  DotType,
+  DrawArgs,
+  GetNeighbor,
+  Orientation,
+  OrientedFigureDrawArgs,
+  RoundedCorners,
+  SideOrientation,
+  SideOrientedFigureDrawArgs,
+  Window
+} from "../../types";
 
 export default class QRDot {
   _element?: SVGElement;
@@ -41,120 +52,158 @@ export default class QRDot {
     drawFunction.call(this, { x, y, size, getNeighbor });
   }
 
-  _rotateFigure({ x, y, size, rotation = 0, draw }: RotateFigureArgs): void {
-    const cx = x + size / 2;
-    const cy = y + size / 2;
-
-    draw();
-    this._element?.setAttribute("transform", `rotate(${(180 * rotation) / Math.PI},${cx},${cy})`);
-  }
-
   _basicDot(args: BasicFigureDrawArgs): void {
     const { size, x, y } = args;
 
-    this._rotateFigure({
-      ...args,
-      draw: () => {
-        this._element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "circle");
-        this._element.setAttribute("cx", String(x + size / 2));
-        this._element.setAttribute("cy", String(y + size / 2));
-        this._element.setAttribute("r", String(size / 2));
-      }
-    });
+    this._element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    this._element.setAttribute("cx", String(x + size / 2));
+    this._element.setAttribute("cy", String(y + size / 2));
+    this._element.setAttribute("r", String(size / 2));
   }
 
   _basicSquare(args: BasicFigureDrawArgs): void {
     const { size, x, y } = args;
 
-    this._rotateFigure({
-      ...args,
-      draw: () => {
-        this._element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "rect");
-        this._element.setAttribute("x", String(x));
-        this._element.setAttribute("y", String(y));
-        this._element.setAttribute("width", String(size));
-        this._element.setAttribute("height", String(size));
-      }
-    });
+    this._element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    this._element.setAttribute("x", String(x));
+    this._element.setAttribute("y", String(y));
+    this._element.setAttribute("width", String(size));
+    this._element.setAttribute("height", String(size));
   }
 
   //if rotation === 0 - right side is rounded
-  _basicSideRounded(args: BasicFigureDrawArgs): void {
-    const { size, x, y } = args;
+  _basicSideRounded(args: SideOrientedFigureDrawArgs): void {
+    const { size, x, y, orientation } = args;
 
-    this._rotateFigure({
-      ...args,
-      draw: () => {
-        this._element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "path");
-        this._element.setAttribute(
-          "d",
-          `M ${x} ${y}` + //go to top left position
-            `v ${size}` + //draw line to left bottom corner
-            `h ${size / 2}` + //draw line to left bottom corner + half of size right
+    const path = (() => {
+      switch (orientation) {
+        case "top":
+          return (
+            `M ${x} ${y + size}` + // move to left bottom corner
+            `h ${size}` + // draw line to right bottom corner
+            `v ${-size / 2}` + // draw line to right center
+            `a ${size / 2} ${size / 2}, 0, 0, 0, ${-size} 0` // draw rounded corner
+          );
+        case "right":
+          return (
+            `M ${x} ${y}` + // move to left top corner
+            `v ${size}` + // draw line to left bottom corner
+            `h ${size / 2}` + // draw line to bottom center
             `a ${size / 2} ${size / 2}, 0, 0, 0, 0 ${-size}` // draw rounded corner
-        );
+          );
+        case "bottom":
+          return (
+            `M ${x + size} ${y}` + // move to right top corner
+            `h ${-size}` + // draw line to left top corner
+            `v ${size / 2}` + // draw line to left center
+            `a ${size / 2} ${size / 2}, 0, 0, 0, ${size} 0` // draw rounded corner
+          );
+        case "left":
+        default:
+          return (
+            `M ${x + size} ${y + size}` + // move to right bottom corner
+            `v ${-size}` + // draw line to right top corner
+            `h ${-size / 2}` + // draw line to top center
+            `a ${size / 2} ${size / 2}, 0, 0, 0, 0 ${size}` // draw rounded corner
+          );
       }
-    });
+    })();
+
+    this._element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "path");
+    this._element.setAttribute("d", path);
   }
 
   //if rotation === 0 - top right corner is rounded
-  _basicCornerRounded(args: BasicFigureDrawArgs): void {
-    const { size, x, y } = args;
+  _basicCornerRounded(args: OrientedFigureDrawArgs): void {
+    const { size, x, y, orientation } = args;
 
-    this._rotateFigure({
-      ...args,
-      draw: () => {
-        this._element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "path");
-        this._element.setAttribute(
-          "d",
-          `M ${x} ${y}` + //go to top left position
-            `v ${size}` + //draw line to left bottom corner
-            `h ${size}` + //draw line to right bottom corner
-            `v ${-size / 2}` + //draw line to right bottom corner + half of size top
-            `a ${size / 2} ${size / 2}, 0, 0, 0, ${-size / 2} ${-size / 2}` // draw rounded corner
-        );
-      }
-    });
+    this._element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "path");
+    this._element.setAttribute(
+      "d",
+      `M ${x} ${y + size / 2}` + // go to the left center
+        (orientation === "bottomleft" // move to the bottom center either with a rounded corner or not
+          ? `a ${size / 2} ${size / 2}, 0, 0, 0, ${size / 2} ${size / 2}`
+          : `v ${size / 2} h ${size / 2}`) +
+        (orientation === "bottomright" // move to the right center either with a rounded corner or not
+          ? `a ${size / 2} ${size / 2}, 0, 0, 0, ${size / 2} ${-size / 2}`
+          : `h ${size / 2} v ${-size / 2}`) +
+        (orientation === "topright" // move to the top center either with a rounded corner or not
+          ? `a ${size / 2} ${size / 2}, 0, 0, 0, ${-size / 2} ${-size / 2}`
+          : `v ${-size / 2} h ${-size / 2}`) +
+        (orientation === "topleft" // move to the left center either with a rounded corner or not
+          ? `a ${size / 2} ${size / 2}, 0, 0, 0, ${-size / 2} ${size / 2}`
+          : `h ${-size / 2} v ${size / 2}`)
+    );
   }
 
   //if rotation === 0 - top right corner is rounded
-  _basicCornerExtraRounded(args: BasicFigureDrawArgs): void {
-    const { size, x, y } = args;
+  _basicCornerExtraRounded(args: OrientedFigureDrawArgs): void {
+    const { size, x, y, orientation } = args;
 
-    this._rotateFigure({
-      ...args,
-      draw: () => {
-        this._element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "path");
-        this._element.setAttribute(
-          "d",
-          `M ${x} ${y}` + //go to top left position
-            `v ${size}` + //draw line to left bottom corner
-            `h ${size}` + //draw line to right bottom corner
-            `a ${size} ${size}, 0, 0, 0, ${-size} ${-size}` // draw rounded top right corner
-        );
+    const path = (() => {
+      switch (orientation) {
+        case "topleft":
+          return (
+            `M ${x + size} ${y}` + // move to top right corner
+            `a ${size} ${size}, 0, 0, 0, ${-size} ${size}` + // draw rounded top left corner
+            `h ${size}` // draw line to right bottom corner
+          );
+        case "bottomleft":
+          return (
+            `M ${x} ${y}` + // move to left top corner
+            `a ${size} ${size}, 0, 0, 0, ${size} ${size}` + // draw rounded bottom left corner
+            `v ${-size}` // draw line to right top corner
+          );
+        case "bottomright":
+          return (
+            `M ${x} ${y + size}` + // move to left bottom corner
+            `a ${size} ${size}, 0, 0, 0, ${size} ${-size}` + // draw rounded bottom right corner
+            `h ${-size}` // draw line to left top corner
+          );
+        case "topright":
+        default:
+          return (
+            `M ${x + size} ${y + size}` + // move to right bottom corner
+            `a ${size} ${size}, 0, 0, 0, ${-size} ${-size}` + // draw rounded top right corner
+            `v ${size}` // draw line to left bottom corner
+          );
       }
-    });
+    })();
+
+    this._element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "path");
+    this._element.setAttribute("d", path);
   }
 
   //if rotation === 0 - left bottom and right top corners are rounded
-  _basicCornersRounded(args: BasicFigureDrawArgs): void {
-    const { size, x, y } = args;
+  _basicCornersRounded(args: { x: number; y: number; size: number; corners: RoundedCorners }): void {
+    const { size, x, y, corners } = args;
 
-    this._rotateFigure({
-      ...args,
-      draw: () => {
-        this._element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "path");
-        this._element.setAttribute(
-          "d",
-          `M ${x} ${y}` + //go to left top position
-            `v ${size / 2}` + //draw line to left top corner + half of size bottom
-            `a ${size / 2} ${size / 2}, 0, 0, 0, ${size / 2} ${size / 2}` + // draw rounded left bottom corner
-            `h ${size / 2}` + //draw line to right bottom corner
-            `v ${-size / 2}` + //draw line to right bottom corner + half of size top
-            `a ${size / 2} ${size / 2}, 0, 0, 0, ${-size / 2} ${-size / 2}` // draw rounded right top corner
-        );
+    const path = (() => {
+      switch (corners) {
+        case "topleftbottomright":
+          return (
+            `M ${x + size / 2} ${y}` + // go to top center
+            `a ${size / 2} ${size / 2}, 0, 0, 0, ${-size / 2} ${size / 2}` + // draw rounded left top corner
+            `v ${size / 2}` + // draw line to bottom left corner
+            `h ${size / 2}` +
+            `a ${size / 2} ${size / 2}, 0, 0, 0, ${size / 2} ${-size / 2}` + // draw rounded right bottom corner
+            `v ${-size / 2}` // draw line to right bottom corner
+          );
+        case "toprightbottomleft":
+        default:
+          return (
+            `M ${x} ${y + size / 2}` + // go to left center
+            `a ${size / 2} ${size / 2}, 0, 0, 0, ${size / 2} ${size / 2}` + // draw rounded bottom left corner
+            `h ${size / 2}` + // draw line to bottom right corner
+            `v ${-size / 2}` + // draw line to bottom center
+            `a ${size / 2} ${size / 2}, 0, 0, 0, ${-size / 2} ${-size / 2}` + // draw rounded top right corner
+            `h ${-size / 2}` // draw line to left top corner
+          );
       }
-    });
+    })();
+
+    this._element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "path");
+    this._element.setAttribute("d", path);
   }
 
   _drawDot({ x, y, size }: DrawArgs): void {
@@ -184,32 +233,32 @@ export default class QRDot {
     }
 
     if (neighborsCount === 2) {
-      let rotation = 0;
+      let orientation: Orientation = "topright";
 
       if (leftNeighbor && topNeighbor) {
-        rotation = Math.PI / 2;
+        orientation = "bottomright";
       } else if (topNeighbor && rightNeighbor) {
-        rotation = Math.PI;
+        orientation = "bottomleft";
       } else if (rightNeighbor && bottomNeighbor) {
-        rotation = -Math.PI / 2;
+        orientation = "topleft";
       }
 
-      this._basicCornerRounded({ x, y, size, rotation });
+      this._basicCornerRounded({ x, y, size, orientation });
       return;
     }
 
     if (neighborsCount === 1) {
-      let rotation = 0;
+      let orientation: SideOrientation = "right";
 
       if (topNeighbor) {
-        rotation = Math.PI / 2;
+        orientation = "bottom";
       } else if (rightNeighbor) {
-        rotation = Math.PI;
+        orientation = "left";
       } else if (bottomNeighbor) {
-        rotation = -Math.PI / 2;
+        orientation = "top";
       }
 
-      this._basicSideRounded({ x, y, size, rotation });
+      this._basicSideRounded({ x, y, size, orientation });
       return;
     }
   }
@@ -233,32 +282,32 @@ export default class QRDot {
     }
 
     if (neighborsCount === 2) {
-      let rotation = 0;
+      let orientation: Orientation = "topright";
 
       if (leftNeighbor && topNeighbor) {
-        rotation = Math.PI / 2;
+        orientation = "bottomright";
       } else if (topNeighbor && rightNeighbor) {
-        rotation = Math.PI;
+        orientation = "bottomleft";
       } else if (rightNeighbor && bottomNeighbor) {
-        rotation = -Math.PI / 2;
+        orientation = "topleft";
       }
 
-      this._basicCornerExtraRounded({ x, y, size, rotation });
+      this._basicCornerExtraRounded({ x, y, size, orientation });
       return;
     }
 
     if (neighborsCount === 1) {
-      let rotation = 0;
+      let orientation: SideOrientation = "right";
 
       if (topNeighbor) {
-        rotation = Math.PI / 2;
+        orientation = "bottom";
       } else if (rightNeighbor) {
-        rotation = Math.PI;
+        orientation = "left";
       } else if (bottomNeighbor) {
-        rotation = -Math.PI / 2;
+        orientation = "top";
       }
 
-      this._basicSideRounded({ x, y, size, rotation });
+      this._basicSideRounded({ x, y, size, orientation });
       return;
     }
   }
@@ -272,17 +321,17 @@ export default class QRDot {
     const neighborsCount = leftNeighbor + rightNeighbor + topNeighbor + bottomNeighbor;
 
     if (neighborsCount === 0) {
-      this._basicCornersRounded({ x, y, size, rotation: Math.PI / 2 });
+      this._basicCornersRounded({ x, y, size, corners: "topleftbottomright" });
       return;
     }
 
     if (!leftNeighbor && !topNeighbor) {
-      this._basicCornerRounded({ x, y, size, rotation: -Math.PI / 2 });
+      this._basicCornerRounded({ x, y, size, orientation: "topleft" });
       return;
     }
 
     if (!rightNeighbor && !bottomNeighbor) {
-      this._basicCornerRounded({ x, y, size, rotation: Math.PI / 2 });
+      this._basicCornerRounded({ x, y, size, orientation: "bottomright" });
       return;
     }
 
@@ -298,17 +347,17 @@ export default class QRDot {
     const neighborsCount = leftNeighbor + rightNeighbor + topNeighbor + bottomNeighbor;
 
     if (neighborsCount === 0) {
-      this._basicCornersRounded({ x, y, size, rotation: Math.PI / 2 });
+      this._basicCornersRounded({ x, y, size, corners: "topleftbottomright" });
       return;
     }
 
     if (!leftNeighbor && !topNeighbor) {
-      this._basicCornerExtraRounded({ x, y, size, rotation: -Math.PI / 2 });
+      this._basicCornerExtraRounded({ x, y, size, orientation: "topleft" });
       return;
     }
 
     if (!rightNeighbor && !bottomNeighbor) {
-      this._basicCornerExtraRounded({ x, y, size, rotation: Math.PI / 2 });
+      this._basicCornerExtraRounded({ x, y, size, orientation: "bottomright" });
       return;
     }
 

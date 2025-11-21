@@ -1,14 +1,14 @@
-import calculateImageSize from "../tools/calculateImageSize";
-import toDataUrl from "../tools/toDataUrl";
+import { Image } from "canvas";
 import errorCorrectionPercents from "../constants/errorCorrectionPercents";
-import QRDot from "../figures/dot/QRDot";
-import QRCornerSquare, { availableCornerSquareTypes } from "../figures/cornerSquare/QRCornerSquare";
-import QRCornerDot, { availableCornerDotTypes } from "../figures/cornerDot/QRCornerDot";
-import { RequiredOptions } from "./QROptions";
 import gradientTypes from "../constants/gradientTypes";
 import shapeTypes from "../constants/shapeTypes";
-import { DotType, QRCode, FilterFunction, Gradient, Window } from "../types";
-import { Image } from "canvas";
+import QRCornerDot, { availableCornerDotTypes } from "../figures/cornerDot/QRCornerDot";
+import QRCornerSquare, { availableCornerSquareTypes } from "../figures/cornerSquare/QRCornerSquare";
+import QRDot from "../figures/dot/QRDot";
+import calculateImageSize from "../tools/calculateImageSize";
+import toDataUrl from "../tools/toDataUrl";
+import { DotType, FilterFunction, Gradient, QRCode, Window } from "../types";
+import { RequiredOptions } from "./QROptions";
 
 const squareMask = [
   [1, 1, 1, 1, 1, 1, 1],
@@ -34,10 +34,6 @@ export default class QRSVG {
   _window: Window;
   _element: SVGElement;
   _defs: SVGElement;
-  _backgroundClipPath?: SVGElement;
-  _dotsClipPath?: SVGElement;
-  _cornersSquareClipPath?: SVGElement;
-  _cornersDotClipPath?: SVGElement;
   _options: RequiredOptions;
   _qr?: QRCode;
   _image?: HTMLImageElement | Image;
@@ -50,8 +46,6 @@ export default class QRSVG {
   constructor(options: RequiredOptions, window: Window) {
     this._window = window;
     this._element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    this._element.setAttribute("width", String(options.width));
-    this._element.setAttribute("height", String(options.height));
     this._element.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
     if (!options.dotsOptions.roundSize) {
       this._element.setAttribute("shape-rendering", "crispEdges");
@@ -148,26 +142,20 @@ export default class QRSVG {
       let width = options.width;
 
       if (gradientOptions || color) {
-        const element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "rect");
-        this._backgroundClipPath = this._window.document.createElementNS("http://www.w3.org/2000/svg", "clipPath");
-        this._backgroundClipPath.setAttribute("id", `clip-path-background-color-${this._instanceId}`);
-        this._defs.appendChild(this._backgroundClipPath);
+        const rect = this._window.document.createElementNS("http://www.w3.org/2000/svg", "rect");
 
         if (options.backgroundOptions?.round) {
           height = width = Math.min(options.width, options.height);
-          element.setAttribute("rx", String((height / 2) * options.backgroundOptions.round));
+          rect.setAttribute("rx", String((height / 2) * options.backgroundOptions.round));
         }
 
-        element.setAttribute("x", String(this._roundSize((options.width - width) / 2)));
-        element.setAttribute("y", String(this._roundSize((options.height - height) / 2)));
-        element.setAttribute("width", String(width));
-        element.setAttribute("height", String(height));
+        rect.setAttribute("x", String(this._roundSize((options.width - width) / 2)));
+        rect.setAttribute("y", String(this._roundSize((options.height - height) / 2)));
+        rect.setAttribute("width", String(width));
+        rect.setAttribute("height", String(height));
 
-        this._backgroundClipPath.appendChild(element);
-
-        this._createColor({
+        const gradientDefinition = this._newCreateColor({
           options: gradientOptions,
-          color: color,
           additionalRotation: 0,
           x: 0,
           y: 0,
@@ -175,6 +163,14 @@ export default class QRSVG {
           width: options.width,
           name: `background-color-${this._instanceId}`
         });
+
+        if (gradientDefinition) {
+          rect.setAttribute("fill", `url('#background-color-${this._instanceId}')`);
+          this._defs.appendChild(gradientDefinition);
+        } else {
+          rect.setAttribute("fill", color || "transparent");
+        }
+        element.appendChild(rect);
       }
     }
   }
@@ -202,13 +198,8 @@ export default class QRSVG {
       window: this._window
     });
 
-    this._dotsClipPath = this._window.document.createElementNS("http://www.w3.org/2000/svg", "clipPath");
-    this._dotsClipPath.setAttribute("id", `clip-path-dot-color-${this._instanceId}`);
-    this._defs.appendChild(this._dotsClipPath);
-
-    this._createColor({
+    const gradientElement = this._newCreateColor({
       options: options.dotsOptions?.gradient,
-      color: options.dotsOptions.color,
       additionalRotation: 0,
       x: 0,
       y: 0,
@@ -231,14 +222,21 @@ export default class QRSVG {
           yBeginning + row * dotSize,
           dotSize,
           (xOffset: number, yOffset: number): boolean => {
-            if (col + xOffset < 0 || row + yOffset < 0 || col + xOffset >= count || row + yOffset >= count) return false;
+            if (col + xOffset < 0 || row + yOffset < 0 || col + xOffset >= count || row + yOffset >= count)
+              return false;
             if (filter && !filter(row + yOffset, col + xOffset)) return false;
             return !!this._qr && this._qr.isDark(row + yOffset, col + xOffset);
           }
         );
 
-        if (dot._element && this._dotsClipPath) {
-          this._dotsClipPath.appendChild(dot._element);
+        if (dot._element) {
+          if (gradientElement) {
+            dot._element.setAttribute("fill", `url('#background-color-${this._instanceId}')`);
+            this._defs.appendChild(gradientElement);
+          } else {
+            dot._element.setAttribute("fill", options.dotsOptions.color || "#fff");
+          }
+          this._element.appendChild(dot._element);
         }
       }
     }
@@ -291,8 +289,14 @@ export default class QRSVG {
               return !!fakeMatrix[row + yOffset]?.[col + xOffset];
             }
           );
-          if (dot._element && this._dotsClipPath) {
-            this._dotsClipPath.appendChild(dot._element);
+
+          if (dot._element) {
+            if (gradientElement) {
+              dot._element.setAttribute("fill", `url('#background-color-${this._instanceId}')`);
+            } else {
+              dot._element.setAttribute("fill", options.dotsOptions.color || "#000");
+            }
+            this._element.appendChild(dot._element);
           }
         }
       }
@@ -327,28 +331,20 @@ export default class QRSVG {
     ].forEach(([column, row, rotation]) => {
       const x = xBeginning + column * dotSize * (count - 7);
       const y = yBeginning + row * dotSize * (count - 7);
-      let cornersSquareClipPath = this._dotsClipPath;
-      let cornersDotClipPath = this._dotsClipPath;
+      const gradient = this._newCreateColor({
+        options: options.cornersSquareOptions?.gradient,
+        additionalRotation: rotation,
+        x,
+        y,
+        height: cornersSquareSize,
+        width: cornersSquareSize,
+        name: `corners-square-color-${column}-${row}-${this._instanceId}`
+      });
 
-      if (options.cornersSquareOptions?.gradient || options.cornersSquareOptions?.color) {
-        cornersSquareClipPath = this._window.document.createElementNS("http://www.w3.org/2000/svg", "clipPath");
-        cornersSquareClipPath.setAttribute("id", `clip-path-corners-square-color-${column}-${row}-${this._instanceId}`);
-        this._defs.appendChild(cornersSquareClipPath);
-        this._cornersSquareClipPath = this._cornersDotClipPath = cornersDotClipPath = cornersSquareClipPath;
-
-        this._createColor({
-          options: options.cornersSquareOptions?.gradient,
-          color: options.cornersSquareOptions?.color,
-          additionalRotation: rotation,
-          x,
-          y,
-          height: cornersSquareSize,
-          width: cornersSquareSize,
-          name: `corners-square-color-${column}-${row}-${this._instanceId}`
-        });
-      }
-
-      if (options.cornersSquareOptions?.type && availableCornerSquareTypes.includes(options.cornersSquareOptions.type)) {
+      if (
+        options.cornersSquareOptions?.type &&
+        availableCornerSquareTypes.includes(options.cornersSquareOptions.type)
+      ) {
         const cornersSquare = new QRCornerSquare({
           svg: this._element,
           type: options.cornersSquareOptions.type,
@@ -357,8 +353,16 @@ export default class QRSVG {
 
         cornersSquare.draw(x, y, cornersSquareSize, rotation);
 
-        if (cornersSquare._element && cornersSquareClipPath) {
-          cornersSquareClipPath.appendChild(cornersSquare._element);
+        if (cornersSquare._element) {
+          if (gradient) {
+            cornersSquare._element.setAttribute(
+              "fill",
+              `url('#corners-square-color-${column}-${row}-${this._instanceId}')`
+            );
+          } else {
+            cornersSquare._element.setAttribute("fill", options.cornersSquareOptions?.color || "#000");
+          }
+          this._element.appendChild(cornersSquare._element);
         }
       } else {
         const dot = new QRDot({
@@ -380,30 +384,27 @@ export default class QRSVG {
               (xOffset: number, yOffset: number): boolean => !!squareMask[row + yOffset]?.[col + xOffset]
             );
 
-            if (dot._element && cornersSquareClipPath) {
-              cornersSquareClipPath.appendChild(dot._element);
+            if (dot._element) {
+              if (gradient) {
+                dot._element.setAttribute("fill", `url('#corners-square-color-${column}-${row}-${this._instanceId}')`);
+              } else {
+                dot._element.setAttribute("fill", options.cornersSquareOptions?.color || "#000");
+              }
+              this._element.appendChild(dot._element);
             }
           }
         }
       }
 
-      if (options.cornersDotOptions?.gradient || options.cornersDotOptions?.color) {
-        cornersDotClipPath = this._window.document.createElementNS("http://www.w3.org/2000/svg", "clipPath");
-        cornersDotClipPath.setAttribute("id", `clip-path-corners-dot-color-${column}-${row}-${this._instanceId}`);
-        this._defs.appendChild(cornersDotClipPath);
-        this._cornersDotClipPath = cornersDotClipPath;
-
-        this._createColor({
-          options: options.cornersDotOptions?.gradient,
-          color: options.cornersDotOptions?.color,
-          additionalRotation: rotation,
-          x: x + dotSize * 2,
-          y: y + dotSize * 2,
-          height: cornersDotSize,
-          width: cornersDotSize,
-          name: `corners-dot-color-${column}-${row}-${this._instanceId}`
-        });
-      }
+      const cornerDotGradient = this._newCreateColor({
+        options: options.cornersDotOptions?.gradient,
+        additionalRotation: rotation,
+        x: x + dotSize * 2,
+        y: y + dotSize * 2,
+        height: cornersDotSize,
+        width: cornersDotSize,
+        name: `corners-dot-color-${column}-${row}-${this._instanceId}`
+      });
 
       if (options.cornersDotOptions?.type && availableCornerDotTypes.includes(options.cornersDotOptions.type)) {
         const cornersDot = new QRCornerDot({
@@ -414,8 +415,13 @@ export default class QRSVG {
 
         cornersDot.draw(x + dotSize * 2, y + dotSize * 2, cornersDotSize, rotation);
 
-        if (cornersDot._element && cornersDotClipPath) {
-          cornersDotClipPath.appendChild(cornersDot._element);
+        if (cornersDot._element) {
+          if (cornerDotGradient) {
+            cornersDot._element.setAttribute("fill", `url('#corners-dot-color-${column}-${row}-${this._instanceId}')`);
+          } else {
+            cornersDot._element.setAttribute("fill", options.cornersDotOptions?.color || "#000");
+          }
+          this._element.appendChild(cornersDot._element);
         }
       } else {
         const dot = new QRDot({
@@ -437,8 +443,13 @@ export default class QRSVG {
               (xOffset: number, yOffset: number): boolean => !!dotMask[row + yOffset]?.[col + xOffset]
             );
 
-            if (dot._element && cornersDotClipPath) {
-              cornersDotClipPath.appendChild(dot._element);
+            if (dot._element) {
+              if (cornerDotGradient) {
+                dot._element.setAttribute("fill", `url('#corners-dot-color-${column}-${row}-${this._instanceId}')`);
+              } else {
+                dot._element.setAttribute("fill", options.cornersDotOptions?.color || "#000");
+              }
+              this._element.appendChild(dot._element);
             }
           }
         }
@@ -460,8 +471,8 @@ export default class QRSVG {
           .then((image: Image) => {
             this._image = image;
             if (this._options.imageOptions.saveAsBlob) {
-              const canvas = options.nodeCanvas?.createCanvas( this._image.width,  this._image.height);
-              canvas?.getContext('2d')?.drawImage(image, 0, 0);
+              const canvas = options.nodeCanvas?.createCanvas(this._image.width, this._image.height);
+              canvas?.getContext("2d")?.drawImage(image, 0, 0);
               this._imageUri = canvas?.toDataURL();
             }
             resolve();
@@ -514,6 +525,91 @@ export default class QRSVG {
     image.setAttribute("height", `${dh}px`);
 
     this._element.appendChild(image);
+  }
+
+  _newCreateColor({
+    options,
+    additionalRotation,
+    x,
+    y,
+    height,
+    width,
+    name
+  }: {
+    options?: Gradient;
+    additionalRotation: number;
+    x: number;
+    y: number;
+    height: number;
+    width: number;
+    name: string;
+  }): SVGElement | null {
+    const size = width > height ? width : height;
+
+    if (options) {
+      let gradient: SVGElement;
+      if (options.type === gradientTypes.radial) {
+        gradient = this._window.document.createElementNS("http://www.w3.org/2000/svg", "radialGradient");
+        gradient.setAttribute("id", name);
+        gradient.setAttribute("gradientUnits", "userSpaceOnUse");
+        gradient.setAttribute("fx", String(x + width / 2));
+        gradient.setAttribute("fy", String(y + height / 2));
+        gradient.setAttribute("cx", String(x + width / 2));
+        gradient.setAttribute("cy", String(y + height / 2));
+        gradient.setAttribute("r", String(size / 2));
+      } else {
+        const rotation = ((options.rotation || 0) + additionalRotation) % (2 * Math.PI);
+        const positiveRotation = (rotation + 2 * Math.PI) % (2 * Math.PI);
+        let x0 = x + width / 2;
+        let y0 = y + height / 2;
+        let x1 = x + width / 2;
+        let y1 = y + height / 2;
+
+        if (
+          (positiveRotation >= 0 && positiveRotation <= 0.25 * Math.PI) ||
+          (positiveRotation > 1.75 * Math.PI && positiveRotation <= 2 * Math.PI)
+        ) {
+          x0 = x0 - width / 2;
+          y0 = y0 - (height / 2) * Math.tan(rotation);
+          x1 = x1 + width / 2;
+          y1 = y1 + (height / 2) * Math.tan(rotation);
+        } else if (positiveRotation > 0.25 * Math.PI && positiveRotation <= 0.75 * Math.PI) {
+          y0 = y0 - height / 2;
+          x0 = x0 - width / 2 / Math.tan(rotation);
+          y1 = y1 + height / 2;
+          x1 = x1 + width / 2 / Math.tan(rotation);
+        } else if (positiveRotation > 0.75 * Math.PI && positiveRotation <= 1.25 * Math.PI) {
+          x0 = x0 + width / 2;
+          y0 = y0 + (height / 2) * Math.tan(rotation);
+          x1 = x1 - width / 2;
+          y1 = y1 - (height / 2) * Math.tan(rotation);
+        } else if (positiveRotation > 1.25 * Math.PI && positiveRotation <= 1.75 * Math.PI) {
+          y0 = y0 + height / 2;
+          x0 = x0 + width / 2 / Math.tan(rotation);
+          y1 = y1 - height / 2;
+          x1 = x1 - width / 2 / Math.tan(rotation);
+        }
+
+        gradient = this._window.document.createElementNS("http://www.w3.org/2000/svg", "linearGradient");
+        gradient.setAttribute("id", name);
+        gradient.setAttribute("gradientUnits", "userSpaceOnUse");
+        gradient.setAttribute("x1", String(Math.round(x0)));
+        gradient.setAttribute("y1", String(Math.round(y0)));
+        gradient.setAttribute("x2", String(Math.round(x1)));
+        gradient.setAttribute("y2", String(Math.round(y1)));
+      }
+
+      options.colorStops.forEach(({ offset, color }: { offset: number; color: string }) => {
+        const stop = this._window.document.createElementNS("http://www.w3.org/2000/svg", "stop");
+        stop.setAttribute("offset", `${100 * offset}%`);
+        stop.setAttribute("stop-color", color);
+        gradient.appendChild(stop);
+      });
+
+      return gradient;
+    }
+
+    return null;
   }
 
   _createColor({
@@ -617,5 +713,5 @@ export default class QRSVG {
       return Math.floor(value);
     }
     return value;
-  }
+  };
 }
