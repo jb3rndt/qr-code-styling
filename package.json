@@ -38,6 +38,7 @@
     "webpack-merge": "^6.0.1"
   },
   "scripts": {
+    "prepare": "npm run build",
     "build": "webpack --mode=production --config webpack.config.build.js",
     "build:dev": "webpack --mode=development --config webpack.config.build.js",
     "test": "jest",

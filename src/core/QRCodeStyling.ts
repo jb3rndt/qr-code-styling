@@ -1,15 +1,15 @@
+import drawTypes from "../constants/drawTypes";
+import downloadURI from "../tools/downloadURI";
 import getMode from "../tools/getMode";
 import mergeDeep from "../tools/merge";
-import downloadURI from "../tools/downloadURI";
 import QRSVG from "./QRSVG";
-import drawTypes from "../constants/drawTypes";
 
-import defaultOptions, { RequiredOptions } from "./QROptions";
-import sanitizeOptions from "../tools/sanitizeOptions";
-import { FileExtension, QRCode, Options, DownloadOptions, ExtensionFunction, Window } from "../types";
+import { Image, Canvas as NodeCanvas } from "canvas";
 import qrcode from "qrcode-generator";
 import getMimeType from "../tools/getMimeType";
-import { Canvas as NodeCanvas, Image } from "canvas";
+import sanitizeOptions from "../tools/sanitizeOptions";
+import { DownloadOptions, ExtensionFunction, FileExtension, Options, QRCode, Window } from "../types";
+import defaultOptions, { RequiredOptions } from "./QROptions";
 
 declare const window: Window;
 
@@ -76,7 +76,7 @@ export default class QRCodeStyling {
       const svg = this._svg;
       const xml = new this._window.XMLSerializer().serializeToString(svg);
       const svg64 = btoa(xml);
-      const image64 = `data:${getMimeType('svg')};base64,${svg64}`;
+      const image64 = `data:${getMimeType("svg")};base64,${svg64}`;
 
       if (this._options.nodeCanvas?.loadImage) {
         return this._options.nodeCanvas.loadImage(image64).then((image: Image) => {
@@ -90,7 +90,7 @@ export default class QRCodeStyling {
 
         return new Promise((resolve) => {
           image.onload = (): void => {
-            this._domCanvas?.getContext("2d")?.drawImage(image, 0, 0);
+            this._domCanvas?.getContext("2d")?.drawImage(image, 0, 0, this._options.width, this._options.height);
             resolve();
           };
 
@@ -196,7 +196,7 @@ export default class QRCodeStyling {
     } else {
       return new Promise((resolve) => {
         const canvas = element;
-        if ('toBuffer' in canvas) {
+        if ("toBuffer" in canvas) {
           // Different call is needed to prevent error TS2769: No overload matches this call.
           if (mimeType === "image/png") {
             resolve(canvas.toBuffer(mimeType));
@@ -207,8 +207,8 @@ export default class QRCodeStyling {
           } else {
             throw Error("Unsupported extension");
           }
-        } else if ('toBlob' in canvas) {
-          (canvas).toBlob(resolve, mimeType, 1);
+        } else if ("toBlob" in canvas) {
+          canvas.toBlob(resolve, mimeType, 1);
         }
       });
     }
