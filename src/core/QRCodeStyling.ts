@@ -45,12 +45,12 @@ export default class QRCodeStyling {
     if (!this._qr) {
       return;
     }
-    const qrSVG = new QRSVG(this._options, this._window);
+    const qrSVG = new QRSVG(this._options, this._window, this._qr);
 
-    this._svg = qrSVG.getElement();
-    this._svgDrawingPromise = qrSVG.drawQR(this._qr).then(() => {
+    this._svg = qrSVG.element();
+    this._svgDrawingPromise = qrSVG.drawQR().then(() => {
       if (!this._svg) return;
-      this._extension?.(qrSVG.getElement(), this._options);
+      this._extension?.(qrSVG.element(), this._options);
     });
   }
 
@@ -90,7 +90,7 @@ export default class QRCodeStyling {
 
         return new Promise((resolve) => {
           image.onload = (): void => {
-            this._domCanvas?.getContext("2d")?.drawImage(image, 0, 0, this._options.width, this._options.height);
+            this._domCanvas?.getContext("2d")?.drawImage(image, 0, 0);
             resolve();
           };
 
@@ -214,26 +214,11 @@ export default class QRCodeStyling {
     }
   }
 
-  async download(downloadOptions?: Partial<DownloadOptions> | string): Promise<void> {
+  async download(downloadOptions?: Partial<DownloadOptions>): Promise<void> {
     if (!this._qr) throw "QR code is empty";
     if (typeof Blob === "undefined") throw "Cannot download in Node.js, call getRawData instead.";
-    let extension = "png" as FileExtension;
-    let name = "qr";
-
-    //TODO remove deprecated code in the v2
-    if (typeof downloadOptions === "string") {
-      extension = downloadOptions as FileExtension;
-      console.warn(
-        "Extension is deprecated as argument for 'download' method, please pass object { name: '...', extension: '...' } as argument"
-      );
-    } else if (typeof downloadOptions === "object" && downloadOptions !== null) {
-      if (downloadOptions.name) {
-        name = downloadOptions.name;
-      }
-      if (downloadOptions.extension) {
-        extension = downloadOptions.extension;
-      }
-    }
+    const extension = downloadOptions?.extension ?? ("png" as FileExtension);
+    const name = downloadOptions?.name ?? "qr";
 
     const element = await this._getElement(extension);
 
