@@ -112,7 +112,7 @@ export default class QRSVGBuilder {
       });
     }
 
-    const dotsMask = this.buildDotsMask((row: number, col: number): boolean => {
+    let dotsMask = this.buildDotsMask((row: number, col: number): boolean => {
       if (this._options.imageOptions.hideBackgroundDots) {
         if (
           row >= (this.moduleCount() - drawImageSize.hideYDots) / 2 &&
@@ -143,72 +143,83 @@ export default class QRSVGBuilder {
       return true;
     });
 
-    const { components, ids } = this.buildConnectedComponents(dotsMask);
-    const { ids: backgroundIds } = this.buildConnectedComponents(dotsMask, true, 8);
-
-    const { width, height } = this.viewboxSize();
-
-    const xBeginning = this._roundSize((width - this.moduleCount() * this._dotSize) / 2);
-    const yBeginning = this._roundSize((height - this.moduleCount() * this._dotSize) / 2);
-
-    const paths = new Map<number, string>();
-    ids.forEach((start, id) => {
-      const path = this.renderComponentToPath(id, components, { dx: xBeginning, dy: yBeginning }, start, false);
-      paths.set(id, path);
-    });
-
-    const backgroundPathsForComponent = new Map<number, number[]>();
-    backgroundIds.forEach((startPosition, id) => {
-      const surroundingComponent = components[startPosition.row][startPosition.col - 1];
-      if (!surroundingComponent || id <= 1) {
-        return;
-      }
-      if (!backgroundPathsForComponent.has(surroundingComponent)) {
-        backgroundPathsForComponent.set(surroundingComponent, []);
-      }
-      backgroundPathsForComponent.get(surroundingComponent)!.push(id);
-    });
-
-    const gradientElement = this._newCreateColor({
-      options: this._options.dotsOptions?.gradient,
-      additionalRotation: 0,
-      x: 0,
-      y: 0,
-      height: this._options.height,
-      width: this._options.width,
-      name: `dot-color-${this._instanceId}`
-    });
+    if (this._options.shape === shapeTypes.circle) {
+      dotsMask = this.expandDotsMaskWithCircle(dotsMask);
+    }
 
     this.drawBackground({ backgroundOptions: this._options.backgroundOptions });
 
-    for (const [id, path] of paths) {
-      const element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "path");
-      element.setAttribute("fill-rule", "evenodd");
-      let fullPath = path;
-      const backgroundPaths = backgroundPathsForComponent.get(id) ?? [];
-      backgroundPaths.forEach((backgroundPathId) => {
-        const start = backgroundIds.get(backgroundPathId)!;
-        fullPath += this.renderComponentToPath(
-          id,
-          components,
-          {
-            dx: xBeginning,
-            dy: yBeginning
-          },
-          // Since all backgroundComponents are fully surrounded by the main component, we can move to the top left corner
-          { row: start.row - 1, col: start.col - 1 },
-          true
-        );
-      });
-      element.setAttribute("d", fullPath);
+    const { width, height } = this.viewboxSize();
 
-      if (gradientElement) {
-        element.setAttribute("fill", `url('#background-color-${this._instanceId}')`);
-        this._defs.appendChild(gradientElement);
-      } else {
-        element.setAttribute("fill", this._options.dotsOptions.color || "#fff");
+    const xBeginning = this._roundSize((width - dotsMask.length * this._dotSize) / 2);
+    const yBeginning = this._roundSize((height - dotsMask.length * this._dotSize) / 2);
+
+    if (this._options.dotsOptions.type === "dots") {
+      this.drawAsSingleDots(dotsMask, {
+        dx: xBeginning,
+        dy: yBeginning
+      });
+    } else {
+      const { components, ids } = this.buildConnectedComponents(dotsMask);
+      const { ids: backgroundIds } = this.buildConnectedComponents(dotsMask, true, 8);
+
+      const paths = new Map<number, string>();
+      ids.forEach((start, id) => {
+        const path = this.renderComponentToPath(id, components, { dx: xBeginning, dy: yBeginning }, start, false);
+        paths.set(id, path);
+      });
+
+      const backgroundPathsForComponent = new Map<number, number[]>();
+      backgroundIds.forEach((startPosition, id) => {
+        const surroundingComponent = components[startPosition.row][startPosition.col - 1];
+        if (!surroundingComponent || id <= 1) {
+          return;
+        }
+        if (!backgroundPathsForComponent.has(surroundingComponent)) {
+          backgroundPathsForComponent.set(surroundingComponent, []);
+        }
+        backgroundPathsForComponent.get(surroundingComponent)!.push(id);
+      });
+
+      const gradientElement = this._newCreateColor({
+        options: this._options.dotsOptions?.gradient,
+        additionalRotation: 0,
+        x: 0,
+        y: 0,
+        height,
+        width,
+        name: `dot-color-${this._instanceId}`
+      });
+
+      for (const [id, path] of paths) {
+        const element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "path");
+        element.setAttribute("fill-rule", "evenodd");
+        let fullPath = path;
+        const backgroundPaths = backgroundPathsForComponent.get(id) ?? [];
+        backgroundPaths.forEach((backgroundPathId) => {
+          const start = backgroundIds.get(backgroundPathId)!;
+          fullPath += this.renderComponentToPath(
+            id,
+            components,
+            {
+              dx: xBeginning,
+              dy: yBeginning
+            },
+            // Since all backgroundComponents are fully surrounded by the main component, we can move to the top left corner
+            { row: start.row - 1, col: start.col - 1 },
+            true
+          );
+        });
+        element.setAttribute("d", fullPath);
+
+        if (gradientElement) {
+          element.setAttribute("fill", `url('#background-color-${this._instanceId}')`);
+          this._defs.appendChild(gradientElement);
+        } else {
+          element.setAttribute("fill", this._options.dotsOptions.color || "#fff");
+        }
+        this._element.appendChild(element);
       }
-      this._element.appendChild(element);
     }
 
     this.drawCorners();
@@ -220,6 +231,60 @@ export default class QRSVGBuilder {
         count: this.moduleCount(),
         dotSize: this._dotSize
       });
+    }
+  }
+
+  drawAsSingleDots(dotsMask: boolean[][], offset: { dx: number; dy: number }): void {
+    const { width, height } = this.viewboxSize();
+
+    const dot = new QRDot({
+      svg: this._element,
+      type: this._options.dotsOptions.type,
+      window: this._window
+    });
+
+    const gradientElement = this._newCreateColor({
+      options: this._options.dotsOptions?.gradient,
+      additionalRotation: 0,
+      x: 0,
+      y: 0,
+      height,
+      width,
+      name: `dot-color-${this._instanceId}`
+    });
+
+    for (let row = 0; row < dotsMask.length; row++) {
+      for (let col = 0; col < dotsMask[row].length; col++) {
+        if (!dotsMask[row][col]) {
+          continue;
+        }
+
+        dot.draw(
+          offset.dx + col * this._dotSize,
+          offset.dy + row * this._dotSize,
+          this._dotSize,
+          (xOffset: number, yOffset: number): boolean => {
+            if (
+              col + xOffset < 0 ||
+              row + yOffset < 0 ||
+              col + xOffset >= dotsMask[row].length ||
+              row + yOffset >= dotsMask.length
+            )
+              return false;
+            return dotsMask[row + yOffset][col + xOffset];
+          }
+        );
+
+        if (dot._element) {
+          if (gradientElement) {
+            dot._element.setAttribute("fill", `url('#dot-color-${this._instanceId}')`);
+            this._defs.appendChild(gradientElement);
+          } else {
+            dot._element.setAttribute("fill", this._options.dotsOptions.color || "#fff");
+          }
+          this._element.appendChild(dot._element);
+        }
+      }
     }
   }
 
@@ -288,21 +353,20 @@ export default class QRSVGBuilder {
     invert = false,
     connectedness: 4 | 8 = 4
   ): { components: (number | null)[][]; ids: Map<number, { row: number; col: number }> } {
-    const count = this.moduleCount();
     const components: (number | null)[][] = [];
 
     let currentComponent = 1;
     const equivalences: Map<number, Set<number>> = new Map();
 
-    for (let row = 0; row < count; row++) {
+    for (let row = 0; row < dotsMask.length; row++) {
       components[row] = [];
-      for (let col = 0; col < count; col++) {
+      for (let col = 0; col < dotsMask[row].length; col++) {
         if (dotsMask[row][col] === invert) {
           components[row][col] = null;
           continue;
         }
 
-        const isEdge = col === 0 || row === 0 || col === count - 1 || row === count - 1;
+        const isEdge = col === 0 || row === 0 || col === dotsMask[row].length - 1 || row === dotsMask.length - 1;
         const leftComponent = col > 0 ? components[row][col - 1] : null;
         const topComponent = row > 0 ? components[row - 1][col] : null;
         const topLeftComponent = col > 0 && row > 0 && connectedness === 8 ? components[row - 1][col - 1] : null;
@@ -346,8 +410,8 @@ export default class QRSVGBuilder {
     const ids: Map<number, { row: number; col: number }> = new Map();
 
     // Resolve aliases
-    for (let row = 0; row < count; row++) {
-      for (let col = 0; col < count; col++) {
+    for (let row = 0; row < components.length; row++) {
+      for (let col = 0; col < components[row].length; col++) {
         const value = components[row][col];
         if (value) {
           const id = Math.min(...Array.from(equivalences.get(value) ?? [value]));
@@ -438,91 +502,44 @@ export default class QRSVGBuilder {
     return rotationOrder.slice(startIndex).find((_, index) => options[(startIndex + index) % 4]);
   }
 
-  drawDots(): void {
-    const options = this._options;
+  expandDotsMaskWithCircle(dotsMask: boolean[][]): boolean[][] {
     const count = this.moduleCount();
     const { width, height } = this.viewboxSize();
 
-    const xBeginning = this._roundSize((width - count * this._dotSize) / 2);
-    const yBeginning = this._roundSize((height - count * this._dotSize) / 2);
-    const dot = new QRDot({
-      svg: this._element,
-      type: options.dotsOptions.type,
-      window: this._window
-    });
+    const additionalDots = this._roundSize(
+      ((Math.min(width, height) - this._options.margin * 2) / this._dotSize - count) / 2
+    );
+    const fakeCount = count + additionalDots * 2;
+    const circularDotsMask: boolean[][] = [];
+    const center = this._roundSize(fakeCount / 2);
 
-    const gradientElement = this._newCreateColor({
-      options: options.dotsOptions?.gradient,
-      additionalRotation: 0,
-      x: 0,
-      y: 0,
-      height: options.height,
-      width: options.width,
-      name: `dot-color-${this._instanceId}`
-    });
-
-    if (options.shape === shapeTypes.circle) {
-      const additionalDots = this._roundSize(
-        ((Math.min(width, height) - this._options.margin * 2) / this._dotSize - count) / 2
-      );
-      const fakeCount = count + additionalDots * 2;
-      const xFakeBeginning = xBeginning - additionalDots * this._dotSize;
-      const yFakeBeginning = yBeginning - additionalDots * this._dotSize;
-      const fakeMatrix: number[][] = [];
-      const center = this._roundSize(fakeCount / 2);
-
-      for (let row = 0; row < fakeCount; row++) {
-        fakeMatrix[row] = [];
-        for (let col = 0; col < fakeCount; col++) {
-          if (
-            row >= additionalDots - 1 &&
-            row <= fakeCount - additionalDots &&
-            col >= additionalDots - 1 &&
-            col <= fakeCount - additionalDots
-          ) {
-            fakeMatrix[row][col] = 0;
-            continue;
-          }
-
-          if (Math.sqrt((row - center) * (row - center) + (col - center) * (col - center)) > center) {
-            fakeMatrix[row][col] = 0;
-            continue;
-          }
-
-          //Get random dots from QR code to show it outside of QR code
-          fakeMatrix[row][col] = this._qr.isDark(
-            col - 2 * additionalDots < 0 ? col : col >= count ? col - 2 * additionalDots : col - additionalDots,
-            row - 2 * additionalDots < 0 ? row : row >= count ? row - 2 * additionalDots : row - additionalDots
-          )
-            ? 1
-            : 0;
+    for (let row = 0; row < fakeCount; row++) {
+      circularDotsMask[row] = [];
+      for (let col = 0; col < fakeCount; col++) {
+        if (
+          row >= additionalDots - 1 &&
+          row <= fakeCount - additionalDots &&
+          col >= additionalDots - 1 &&
+          col <= fakeCount - additionalDots
+        ) {
+          circularDotsMask[row][col] = dotsMask[row - additionalDots]?.[col - additionalDots] ?? false;
+          continue;
         }
-      }
 
-      for (let row = 0; row < fakeCount; row++) {
-        for (let col = 0; col < fakeCount; col++) {
-          if (!fakeMatrix[row][col]) continue;
-
-          dot.draw(
-            xFakeBeginning + col * this._dotSize,
-            yFakeBeginning + row * this._dotSize,
-            this._dotSize,
-            (xOffset: number, yOffset: number): boolean => {
-              return !!fakeMatrix[row + yOffset]?.[col + xOffset];
-            }
-          );
-
-          if (dot._element) {
-            if (gradientElement) {
-              dot._element.setAttribute("fill", `url('#background-color-${this._instanceId}')`);
-            } else {
-              dot._element.setAttribute("fill", options.dotsOptions.color || "#000");
-            }
-            this._element.appendChild(dot._element);
-          }
+        if (Math.sqrt((row - center) * (row - center) + (col - center) * (col - center)) > center) {
+          circularDotsMask[row][col] = false;
+          continue;
         }
+
+        //Get random dots from QR code to show it outside of QR code
+        circularDotsMask[row][col] = this._qr.isDark(
+          col - 2 * additionalDots < 0 ? col : col >= count ? col - 2 * additionalDots : col - additionalDots,
+          row - 2 * additionalDots < 0 ? row : row >= count ? row - 2 * additionalDots : row - additionalDots
+        );
       }
     }
+
+    return circularDotsMask;
   }
 
   drawCorners(): void {
