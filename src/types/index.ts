@@ -206,3 +206,7 @@ export type RotateFigureArgs = {
 export type GetNeighbor = (x: number, y: number) => boolean;
 
 export type ExtensionFunction = (svg: SVGElement, options: Options) => void;
+
+export type Directions4 = "top" | "right" | "bottom" | "left";
+
+export type Directions8 = "top" | "right" | "bottom" | "left" | "topright" | "bottomright" | "bottomleft" | "topleft";
