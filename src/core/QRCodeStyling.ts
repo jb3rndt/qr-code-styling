@@ -2,7 +2,6 @@ import drawTypes from "../constants/drawTypes";
 import downloadURI from "../tools/downloadURI";
 import getMode from "../tools/getMode";
 import mergeDeep from "../tools/merge";
-import QRSVG from "./QRSVG";
 
 import { Image, Canvas as NodeCanvas } from "canvas";
 import qrcode from "qrcode-generator";
@@ -10,6 +9,7 @@ import getMimeType from "../tools/getMimeType";
 import sanitizeOptions from "../tools/sanitizeOptions";
 import { DownloadOptions, ExtensionFunction, FileExtension, Options, QRCode, Window } from "../types";
 import defaultOptions, { RequiredOptions } from "./QROptions";
+import QRSVGBuilder from "./QRSVGBuilder";
 
 declare const window: Window;
 
@@ -45,7 +45,7 @@ export default class QRCodeStyling {
     if (!this._qr) {
       return;
     }
-    const qrSVG = new QRSVG(this._options, this._window, this._qr);
+    const qrSVG = new QRSVGBuilder(this._options, this._window, this._qr);
 
     this._svg = qrSVG.element();
     this._svgDrawingPromise = qrSVG.drawQR().then(() => {
