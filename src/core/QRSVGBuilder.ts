@@ -2,34 +2,33 @@ import { Image } from "canvas";
 import errorCorrectionPercents from "../constants/errorCorrectionPercents";
 import gradientTypes from "../constants/gradientTypes";
 import shapeTypes from "../constants/shapeTypes";
-import QRCornerDot, { availableCornerDotTypes } from "../figures/cornerDot/QRCornerDot";
-import QRCornerSquare, { availableCornerSquareTypes } from "../figures/cornerSquare/QRCornerSquare";
-import QRDot from "../figures/dot/QRDot";
-import calculateImageSize from "../tools/calculateImageSize";
+import calculateImageSize, { ImageSizeResult } from "../tools/calculateImageSize";
 import mergeDeep from "../tools/merge";
+import { createCircleElement, createDonutElement } from "../tools/path.utils";
 import sanitizeOptions from "../tools/sanitizeOptions";
 import toDataUrl from "../tools/toDataUrl";
-import { Directions4, DotType, FilterFunction, Gradient, QRCode, Window } from "../types";
+import { Directions, Gradient, QRCode, Window } from "../types";
+import { drawerFactory, getDrawDirections, PathDrawer } from "./PathDrawer";
 import defaultOptions, { RequiredOptions } from "./QROptions";
 
 const squareMask = [
-  [1, 1, 1, 1, 1, 1, 1],
-  [1, 0, 0, 0, 0, 0, 1],
-  [1, 0, 0, 0, 0, 0, 1],
-  [1, 0, 0, 0, 0, 0, 1],
-  [1, 0, 0, 0, 0, 0, 1],
-  [1, 0, 0, 0, 0, 0, 1],
-  [1, 1, 1, 1, 1, 1, 1]
+  [true, true, true, true, true, true, true],
+  [true, false, false, false, false, false, true],
+  [true, false, false, false, false, false, true],
+  [true, false, false, false, false, false, true],
+  [true, false, false, false, false, false, true],
+  [true, false, false, false, false, false, true],
+  [true, true, true, true, true, true, true]
 ];
 
 const dotMask = [
-  [0, 0, 0, 0, 0, 0, 0],
-  [0, 0, 0, 0, 0, 0, 0],
-  [0, 0, 1, 1, 1, 0, 0],
-  [0, 0, 1, 1, 1, 0, 0],
-  [0, 0, 1, 1, 1, 0, 0],
-  [0, 0, 0, 0, 0, 0, 0],
-  [0, 0, 0, 0, 0, 0, 0]
+  [false, false, false, false, false, false, false],
+  [false, false, false, false, false, false, false],
+  [false, false, true, true, true, false, false],
+  [false, false, true, true, true, false, false],
+  [false, false, true, true, true, false, false],
+  [false, false, false, false, false, false, false],
+  [false, false, false, false, false, false, false]
 ];
 
 export default class QRSVGBuilder {
@@ -112,115 +111,11 @@ export default class QRSVGBuilder {
       });
     }
 
-    let dotsMask = this.buildDotsMask((row: number, col: number): boolean => {
-      if (this._options.imageOptions.hideBackgroundDots) {
-        if (
-          row >= (this.moduleCount() - drawImageSize.hideYDots) / 2 &&
-          row < (this.moduleCount() + drawImageSize.hideYDots) / 2 &&
-          col >= (this.moduleCount() - drawImageSize.hideXDots) / 2 &&
-          col < (this.moduleCount() + drawImageSize.hideXDots) / 2
-        ) {
-          return false;
-        }
-      }
-
-      if (
-        squareMask[row]?.[col] ||
-        squareMask[row - this.moduleCount() + 7]?.[col] ||
-        squareMask[row]?.[col - this.moduleCount() + 7]
-      ) {
-        return false;
-      }
-
-      if (
-        dotMask[row]?.[col] ||
-        dotMask[row - this.moduleCount() + 7]?.[col] ||
-        dotMask[row]?.[col - this.moduleCount() + 7]
-      ) {
-        return false;
-      }
-
-      return true;
-    });
-
-    if (this._options.shape === shapeTypes.circle) {
-      dotsMask = this.expandDotsMaskWithCircle(dotsMask);
-    }
+    const dotsMask = this.buildDotsMask(drawImageSize);
 
     this.drawBackground({ backgroundOptions: this._options.backgroundOptions });
 
-    const { width, height } = this.viewboxSize();
-
-    const xBeginning = this._roundSize((width - dotsMask.length * this._dotSize) / 2);
-    const yBeginning = this._roundSize((height - dotsMask.length * this._dotSize) / 2);
-
-    if (this._options.dotsOptions.type === "dots") {
-      this.drawAsSingleDots(dotsMask, {
-        dx: xBeginning,
-        dy: yBeginning
-      });
-    } else {
-      const { components, ids } = this.buildConnectedComponents(dotsMask);
-      const { ids: backgroundIds } = this.buildConnectedComponents(dotsMask, true, 8);
-
-      const paths = new Map<number, string>();
-      ids.forEach((start, id) => {
-        const path = this.renderComponentToPath(id, components, { dx: xBeginning, dy: yBeginning }, start, false);
-        paths.set(id, path);
-      });
-
-      const backgroundPathsForComponent = new Map<number, number[]>();
-      backgroundIds.forEach((startPosition, id) => {
-        const surroundingComponent = components[startPosition.row][startPosition.col - 1];
-        if (!surroundingComponent || id <= 1) {
-          return;
-        }
-        if (!backgroundPathsForComponent.has(surroundingComponent)) {
-          backgroundPathsForComponent.set(surroundingComponent, []);
-        }
-        backgroundPathsForComponent.get(surroundingComponent)!.push(id);
-      });
-
-      const gradientElement = this._newCreateColor({
-        options: this._options.dotsOptions?.gradient,
-        additionalRotation: 0,
-        x: 0,
-        y: 0,
-        height,
-        width,
-        name: `dot-color-${this._instanceId}`
-      });
-
-      for (const [id, path] of paths) {
-        const element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "path");
-        element.setAttribute("fill-rule", "evenodd");
-        let fullPath = path;
-        const backgroundPaths = backgroundPathsForComponent.get(id) ?? [];
-        backgroundPaths.forEach((backgroundPathId) => {
-          const start = backgroundIds.get(backgroundPathId)!;
-          fullPath += this.renderComponentToPath(
-            id,
-            components,
-            {
-              dx: xBeginning,
-              dy: yBeginning
-            },
-            // Since all backgroundComponents are fully surrounded by the main component, we can move to the top left corner
-            { row: start.row - 1, col: start.col - 1 },
-            true
-          );
-        });
-        element.setAttribute("d", fullPath);
-
-        if (gradientElement) {
-          element.setAttribute("fill", `url('#background-color-${this._instanceId}')`);
-          this._defs.appendChild(gradientElement);
-        } else {
-          element.setAttribute("fill", this._options.dotsOptions.color || "#fff");
-        }
-        this._element.appendChild(element);
-      }
-    }
+    this.drawMainComponents(dotsMask);
 
     this.drawCorners();
 
@@ -234,14 +129,8 @@ export default class QRSVGBuilder {
     }
   }
 
-  drawAsSingleDots(dotsMask: boolean[][], offset: { dx: number; dy: number }): void {
+  drawMainComponents(dotsMask: boolean[][]): void {
     const { width, height } = this.viewboxSize();
-
-    const dot = new QRDot({
-      svg: this._element,
-      type: this._options.dotsOptions.type,
-      window: this._window
-    });
 
     const gradientElement = this._newCreateColor({
       options: this._options.dotsOptions?.gradient,
@@ -252,37 +141,86 @@ export default class QRSVGBuilder {
       width,
       name: `dot-color-${this._instanceId}`
     });
+    if (gradientElement) {
+      this._defs.appendChild(gradientElement);
+    }
+    const fillColor = gradientElement
+      ? `url('#dot-color-${this._instanceId}')`
+      : this._options.dotsOptions.color || "#000";
 
+    const offset = {
+      dx: this._roundSize((width - dotsMask.length * this._dotSize) / 2),
+      dy: this._roundSize((height - dotsMask.length * this._dotSize) / 2)
+    };
+
+    if (this._options.dotsOptions.type === "dots") {
+      this.drawSingleDots(dotsMask, offset, fillColor);
+    } else {
+      this.drawComponents(dotsMask, offset, fillColor, drawerFactory(this._options.dotsOptions.type, this._dotSize));
+    }
+  }
+
+  drawComponents(
+    dotsMask: boolean[][],
+    offset: { dx: number; dy: number },
+    fillColor: string,
+    drawer: PathDrawer
+  ): void {
+    const { components, ids } = this.buildConnectedComponents(dotsMask);
+    const { ids: backgroundIds } = this.buildConnectedComponents(dotsMask, true, 8);
+
+    const paths = new Map<number, string>();
+    ids.forEach((start, id) => {
+      const path = this.renderComponentToPath(id, components, offset, start, drawer, false);
+      paths.set(id, path);
+    });
+
+    const backgroundPathsForComponent = new Map<number, number[]>();
+    backgroundIds.forEach((startPosition, id) => {
+      const surroundingComponent = components[startPosition.row][startPosition.col - 1];
+      if (!surroundingComponent || id <= 1) {
+        return;
+      }
+      if (!backgroundPathsForComponent.has(surroundingComponent)) {
+        backgroundPathsForComponent.set(surroundingComponent, []);
+      }
+      backgroundPathsForComponent.get(surroundingComponent)!.push(id);
+    });
+
+    for (const [id, path] of paths) {
+      const element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "path");
+      element.setAttribute("fill-rule", "evenodd");
+      let fullPath = path;
+      const backgroundPaths = backgroundPathsForComponent.get(id) ?? [];
+      backgroundPaths.forEach((backgroundPathId) => {
+        const start = backgroundIds.get(backgroundPathId)!;
+        fullPath += this.renderComponentToPath(
+          id,
+          components,
+          offset,
+          // Since all backgroundComponents are fully surrounded by the main component, we can move to the top left corner
+          { row: start.row - 1, col: start.col - 1 },
+          drawer,
+          true
+        );
+      });
+      element.setAttribute("d", fullPath);
+      element.setAttribute("fill", fillColor);
+
+      this._element.appendChild(element);
+    }
+  }
+
+  drawSingleDots(dotsMask: boolean[][], offset: { dx: number; dy: number }, fillColor: string): void {
     for (let row = 0; row < dotsMask.length; row++) {
       for (let col = 0; col < dotsMask[row].length; col++) {
-        if (!dotsMask[row][col]) {
-          continue;
-        }
+        if (dotsMask[row][col]) {
+          const x = offset.dx + col * this._dotSize;
+          const y = offset.dy + row * this._dotSize;
 
-        dot.draw(
-          offset.dx + col * this._dotSize,
-          offset.dy + row * this._dotSize,
-          this._dotSize,
-          (xOffset: number, yOffset: number): boolean => {
-            if (
-              col + xOffset < 0 ||
-              row + yOffset < 0 ||
-              col + xOffset >= dotsMask[row].length ||
-              row + yOffset >= dotsMask.length
-            )
-              return false;
-            return dotsMask[row + yOffset][col + xOffset];
-          }
-        );
-
-        if (dot._element) {
-          if (gradientElement) {
-            dot._element.setAttribute("fill", `url('#dot-color-${this._instanceId}')`);
-            this._defs.appendChild(gradientElement);
-          } else {
-            dot._element.setAttribute("fill", this._options.dotsOptions.color || "#fff");
-          }
-          this._element.appendChild(dot._element);
+          const circle = createCircleElement(this._window, { dx: x, dy: y }, this._dotSize);
+          circle.setAttribute("fill", fillColor);
+          this._element.appendChild(circle);
         }
       }
     }
@@ -290,13 +228,8 @@ export default class QRSVGBuilder {
 
   drawBackground({ backgroundOptions }: { backgroundOptions?: RequiredOptions["backgroundOptions"] }): void {
     const { width, height } = this.viewboxSize();
-    const element = this._element;
     const gradientOptions = backgroundOptions?.gradient;
     const color = backgroundOptions?.color;
-
-    if (!element) {
-      return;
-    }
 
     if (gradientOptions || color) {
       const rect = this._window.document.createElementNS("http://www.w3.org/2000/svg", "rect");
@@ -334,9 +267,40 @@ export default class QRSVGBuilder {
     }
   }
 
-  buildDotsMask(filter?: FilterFunction): boolean[][] {
+  buildDotsMask(centerImageSize: ImageSizeResult): boolean[][] {
     const mask: boolean[][] = [];
     const count = this.moduleCount();
+
+    const filter = (row: number, col: number): boolean => {
+      if (this._options.imageOptions.hideBackgroundDots) {
+        if (
+          row >= (this.moduleCount() - centerImageSize.hideYDots) / 2 &&
+          row < (this.moduleCount() + centerImageSize.hideYDots) / 2 &&
+          col >= (this.moduleCount() - centerImageSize.hideXDots) / 2 &&
+          col < (this.moduleCount() + centerImageSize.hideXDots) / 2
+        ) {
+          return false;
+        }
+      }
+
+      if (
+        squareMask[row]?.[col] ||
+        squareMask[row - this.moduleCount() + 7]?.[col] ||
+        squareMask[row]?.[col - this.moduleCount() + 7]
+      ) {
+        return false;
+      }
+
+      if (
+        dotMask[row]?.[col] ||
+        dotMask[row - this.moduleCount() + 7]?.[col] ||
+        dotMask[row]?.[col - this.moduleCount() + 7]
+      ) {
+        return false;
+      }
+
+      return true;
+    };
 
     for (let row = 0; row < count; row++) {
       mask[row] = [];
@@ -345,6 +309,9 @@ export default class QRSVGBuilder {
       }
     }
 
+    if (this._options.shape === shapeTypes.circle) {
+      return this.expandDotsMaskWithCircle(mask);
+    }
     return mask;
   }
 
@@ -433,13 +400,12 @@ export default class QRSVGBuilder {
     components: (number | null)[][],
     offset: { dx: number; dy: number },
     start: { row: number; col: number },
+    drawer: PathDrawer,
     moveRight: boolean
   ): string {
-    const directions = this.getDirections();
-
     let path = `M ${start.col * this._dotSize + offset.dx} ${start.row * this._dotSize + offset.dy} `;
-    let origin: Directions4 = "top";
-    let nextDirection: Directions4 | undefined = undefined;
+    let origin: Directions = "top";
+    let nextDirection: Directions | undefined = undefined;
     const current: typeof start = { ...start };
 
     if (components[current.row]?.[current.col + 1] === componentId && !moveRight) {
@@ -453,6 +419,7 @@ export default class QRSVGBuilder {
     }
 
     const originalOrigin = origin;
+    const directions = getDrawDirections(drawer);
 
     do {
       const hasLeft = components[current.row]?.[current.col - 1] === componentId;
@@ -462,11 +429,11 @@ export default class QRSVGBuilder {
       nextDirection = this.determineNextDirection(origin, hasLeft, hasRight, hasTop, hasBottom);
       if (!nextDirection) {
         // A single dot
-        path += this.singleDot(this._dotSize, this._options.dotsOptions.type);
+        path += drawer.singleDot();
         break;
       }
 
-      path += directions[origin][nextDirection]?.(this._dotSize, this._options.dotsOptions.type) ?? "";
+      path += directions[origin][nextDirection]?.() ?? "";
 
       switch (nextDirection) {
         case "left":
@@ -490,12 +457,12 @@ export default class QRSVGBuilder {
   }
 
   determineNextDirection(
-    origin: Directions4,
+    origin: Directions,
     hasLeft: boolean,
     hasRight: boolean,
     hasTop: boolean,
     hasBottom: boolean
-  ): Directions4 | undefined {
+  ): Directions | undefined {
     const rotationOrder = ["left", "bottom", "right", "top", "left", "bottom", "right", "top"] as const;
     const startIndex = rotationOrder.indexOf(origin) + 1;
     const options = [hasLeft, hasBottom, hasRight, hasTop];
@@ -544,25 +511,22 @@ export default class QRSVGBuilder {
 
   drawCorners(): void {
     const { width, height } = this.viewboxSize();
-    const element = this._element;
     const options = this._options;
 
-    if (!element) {
-      throw "Element code is not defined";
-    }
-
     const count = this._qr.getModuleCount();
-    const dotSize = 4;
+    const dotSize = this._dotSize;
     const cornersSquareSize = dotSize * 7;
     const cornersDotSize = dotSize * 3;
     const xBeginning = this._roundSize((width - count * dotSize) / 2);
     const yBeginning = this._roundSize((height - count * dotSize) / 2);
 
-    [
+    const cornerSquareType = this._options.cornersSquareOptions?.type || this._options.dotsOptions.type;
+
+    const locations = [
       [0, 0, 0],
       [1, 0, Math.PI / 2],
       [0, 1, -Math.PI / 2]
-    ].forEach(([column, row, rotation]) => {
+    ].map(([column, row, rotation]) => {
       const x = xBeginning + column * dotSize * (count - 7);
       const y = yBeginning + row * dotSize * (count - 7);
       const gradient = this._newCreateColor({
@@ -574,121 +538,75 @@ export default class QRSVGBuilder {
         width: cornersSquareSize,
         name: `corners-square-color-${column}-${row}-${this._instanceId}`
       });
-
-      if (
-        options.cornersSquareOptions?.type &&
-        availableCornerSquareTypes.includes(options.cornersSquareOptions.type)
-      ) {
-        const cornersSquare = new QRCornerSquare({
-          svg: this._element,
-          type: options.cornersSquareOptions.type,
-          window: this._window
-        });
-
-        cornersSquare.draw(x, y, cornersSquareSize, rotation);
-
-        if (cornersSquare._element) {
-          if (gradient) {
-            cornersSquare._element.setAttribute(
-              "fill",
-              `url('#corners-square-color-${column}-${row}-${this._instanceId}')`
-            );
-          } else {
-            cornersSquare._element.setAttribute("fill", options.cornersSquareOptions?.color || "#000");
-          }
-          this._element.appendChild(cornersSquare._element);
-        }
-      } else {
-        const dot = new QRDot({
-          svg: this._element,
-          type: (options.cornersSquareOptions?.type as DotType) || options.dotsOptions.type,
-          window: this._window
-        });
-
-        for (let row = 0; row < squareMask.length; row++) {
-          for (let col = 0; col < squareMask[row].length; col++) {
-            if (!squareMask[row]?.[col]) {
-              continue;
-            }
-
-            dot.draw(
-              x + col * dotSize,
-              y + row * dotSize,
-              dotSize,
-              (xOffset: number, yOffset: number): boolean => !!squareMask[row + yOffset]?.[col + xOffset]
-            );
-
-            if (dot._element) {
-              if (gradient) {
-                dot._element.setAttribute("fill", `url('#corners-square-color-${column}-${row}-${this._instanceId}')`);
-              } else {
-                dot._element.setAttribute("fill", options.cornersSquareOptions?.color || "#000");
-              }
-              this._element.appendChild(dot._element);
-            }
-          }
-        }
+      if (gradient) {
+        this._defs.appendChild(gradient);
       }
+      const fillColor = gradient
+        ? `url('#corners-square-color-${column}-${row}-${this._instanceId}')`
+        : options.cornersSquareOptions?.color || "#000";
+      return { x, y, fillColor };
+    });
 
-      const cornerDotGradient = this._newCreateColor({
+    if (cornerSquareType === "dots") {
+      for (const { x, y, fillColor } of locations) {
+        this.drawSingleDots(squareMask, { dx: x, dy: y }, fillColor);
+      }
+    } else if (cornerSquareType === "dot") {
+      for (const { x, y, fillColor } of locations) {
+        const donut = createDonutElement(this._window, { dx: x, dy: y }, cornersSquareSize, dotSize);
+        donut.setAttribute("fill", fillColor);
+        this._element.appendChild(donut);
+      }
+    } else {
+      const cornerSquareDrawer = drawerFactory(cornerSquareType, this._dotSize);
+      for (const { x, y, fillColor } of locations) {
+        this.drawComponents(squareMask, { dx: x, dy: y }, fillColor, cornerSquareDrawer);
+      }
+    }
+
+    const cornerDotType = this._options.cornersDotOptions?.type || this._options.dotsOptions.type;
+
+    const cornerDotLocations = [
+      [0, 0, 0],
+      [1, 0, Math.PI / 2],
+      [0, 1, -Math.PI / 2]
+    ].map(([column, row, rotation]) => {
+      const x = xBeginning + column * dotSize * (count - 7);
+      const y = yBeginning + row * dotSize * (count - 7);
+      const gradient = this._newCreateColor({
         options: options.cornersDotOptions?.gradient,
         additionalRotation: rotation,
-        x: x + dotSize * 2,
-        y: y + dotSize * 2,
+        x,
+        y,
         height: cornersDotSize,
         width: cornersDotSize,
         name: `corners-dot-color-${column}-${row}-${this._instanceId}`
       });
-
-      if (options.cornersDotOptions?.type && availableCornerDotTypes.includes(options.cornersDotOptions.type)) {
-        const cornersDot = new QRCornerDot({
-          svg: this._element,
-          type: options.cornersDotOptions.type,
-          window: this._window
-        });
-
-        cornersDot.draw(x + dotSize * 2, y + dotSize * 2, cornersDotSize, rotation);
-
-        if (cornersDot._element) {
-          if (cornerDotGradient) {
-            cornersDot._element.setAttribute("fill", `url('#corners-dot-color-${column}-${row}-${this._instanceId}')`);
-          } else {
-            cornersDot._element.setAttribute("fill", options.cornersDotOptions?.color || "#000");
-          }
-          this._element.appendChild(cornersDot._element);
-        }
-      } else {
-        const dot = new QRDot({
-          svg: this._element,
-          type: (options.cornersDotOptions?.type as DotType) || options.dotsOptions.type,
-          window: this._window
-        });
-
-        for (let row = 0; row < dotMask.length; row++) {
-          for (let col = 0; col < dotMask[row].length; col++) {
-            if (!dotMask[row]?.[col]) {
-              continue;
-            }
-
-            dot.draw(
-              x + col * dotSize,
-              y + row * dotSize,
-              dotSize,
-              (xOffset: number, yOffset: number): boolean => !!dotMask[row + yOffset]?.[col + xOffset]
-            );
-
-            if (dot._element) {
-              if (cornerDotGradient) {
-                dot._element.setAttribute("fill", `url('#corners-dot-color-${column}-${row}-${this._instanceId}')`);
-              } else {
-                dot._element.setAttribute("fill", options.cornersDotOptions?.color || "#000");
-              }
-              this._element.appendChild(dot._element);
-            }
-          }
-        }
+      if (gradient) {
+        this._defs.appendChild(gradient);
       }
+      const fillColor = gradient
+        ? `url('#corners-dot-color-${column}-${row}-${this._instanceId}')`
+        : options.cornersDotOptions?.color || "#000";
+      return { x, y, fillColor };
     });
+
+    if (cornerDotType === "dots") {
+      for (const { x, y, fillColor } of cornerDotLocations) {
+        this.drawSingleDots(dotMask, { dx: x, dy: y }, fillColor);
+      }
+    } else if (cornerDotType === "dot") {
+      for (const { x, y, fillColor } of cornerDotLocations) {
+        const donut = createCircleElement(this._window, { dx: x + dotSize * 2, dy: y + dotSize * 2 }, cornersDotSize);
+        donut.setAttribute("fill", fillColor);
+        this._element.appendChild(donut);
+      }
+    } else {
+      const cornerDotDrawer = drawerFactory(cornerDotType, this._dotSize);
+      for (const { x, y, fillColor } of cornerDotLocations) {
+        this.drawComponents(dotMask, { dx: x, dy: y }, fillColor, cornerDotDrawer);
+      }
+    }
   }
 
   loadImage(): Promise<void> {
@@ -852,177 +770,4 @@ export default class QRSVGBuilder {
     }
     return value;
   };
-
-  // from -> to
-  getDirections = () => ({
-    left: {
-      right: this.right.bind(this),
-      bottom: null,
-      left: this.rightU.bind(this),
-      top: this.rightUp.bind(this)
-    },
-    right: {
-      right: this.leftU.bind(this),
-      bottom: this.leftDown.bind(this),
-      left: this.left.bind(this),
-      top: null
-    },
-    top: {
-      right: this.downRight.bind(this),
-      bottom: this.down.bind(this),
-      left: null,
-      top: this.bottomU.bind(this)
-    },
-    bottom: {
-      right: null,
-      bottom: this.topU.bind(this),
-      left: this.upLeft.bind(this),
-      top: this.up.bind(this)
-    }
-  });
-
-  down(size: number) {
-    return `v ${size}`;
-  }
-
-  right(size: number) {
-    return `h ${size}`;
-  }
-
-  up(size: number) {
-    return `v -${size}`;
-  }
-
-  left(size: number) {
-    return `h -${size}`;
-  }
-
-  leftDownArc(size: number) {
-    return `a ${size} ${size} 0 0 0 -${size} ${size}`;
-  }
-
-  upLeftArc(size: number) {
-    return `a ${size} ${size} 0 0 0 -${size} -${size}`;
-  }
-
-  downRightArc(size: number) {
-    return `a ${size} ${size} 0 0 0 ${size} ${size}`;
-  }
-
-  rightUpArc(size: number) {
-    return `a ${size} ${size} 0 0 0 ${size} -${size}`;
-  }
-
-  bottomUArc(size: number) {
-    return `a ${size / 2} ${size / 2} 0 0 0 ${size} 0`;
-  }
-
-  rightUArc(size: number) {
-    return `a ${size / 2} ${size / 2} 0 0 0 0 -${size}`;
-  }
-
-  topUArc(size: number) {
-    return `a ${size / 2} ${size / 2} 0 0 0 -${size} 0`;
-  }
-
-  leftUArc(size: number) {
-    return `a ${size / 2} ${size / 2} 0 0 0 0 ${size}`;
-  }
-
-  leftDown(size: number, style: DotType) {
-    if (style === "rounded" || style === "classy") {
-      return this.left(size / 2) + this.leftDownArc(size / 2) + this.down(size / 2);
-    } else if (style === "extra-rounded" || style === "classy-rounded") {
-      return this.leftDownArc(size);
-    }
-    return this.left(size) + this.down(size);
-  }
-
-  upLeft(size: number, style: DotType) {
-    if (style === "rounded") {
-      return this.up(size / 2) + this.upLeftArc(size / 2) + this.left(size / 2);
-    } else if (style === "extra-rounded") {
-      return this.upLeftArc(size);
-    }
-    return this.up(size) + this.left(size);
-  }
-
-  downRight(size: number, style: DotType) {
-    if (style === "rounded") {
-      return this.down(size / 2) + this.downRightArc(size / 2) + this.right(size / 2);
-    } else if (style === "extra-rounded") {
-      return this.downRightArc(size);
-    }
-    return this.down(size) + this.right(size);
-  }
-
-  rightUp(size: number, style: DotType) {
-    if (style === "rounded" || style === "classy") {
-      return this.right(size / 2) + this.rightUpArc(size / 2) + this.up(size / 2);
-    } else if (style === "extra-rounded" || style === "classy-rounded") {
-      return this.rightUpArc(size);
-    }
-    return this.right(size) + this.up(size);
-  }
-
-  bottomU(size: number, style: DotType) {
-    if (style === "rounded" || style === "extra-rounded") {
-      return this.down(size / 2) + this.bottomUArc(size) + this.up(size / 2);
-    } else if (style === "classy") {
-      return this.down(size) + this.right(size / 2) + this.rightUpArc(size / 2) + this.up(size / 2);
-    } else if (style === "classy-rounded") {
-      return this.down(size) + this.rightUpArc(size);
-    }
-    return this.down(size) + this.right(size) + this.up(size);
-  }
-
-  leftU(size: number, style: DotType) {
-    if (style === "rounded" || style === "extra-rounded") {
-      return this.left(size / 2) + this.leftUArc(size) + this.right(size / 2);
-    } else if (style === "classy") {
-      return this.left(size / 2) + this.leftDownArc(size / 2) + this.down(size / 2) + this.right(size);
-    } else if (style === "classy-rounded") {
-      return this.leftDownArc(size) + this.right(size);
-    }
-    return this.left(size) + this.down(size) + this.right(size);
-  }
-
-  rightU(size: number, style: DotType) {
-    if (style === "rounded" || style === "extra-rounded") {
-      return this.right(size / 2) + this.rightUArc(size) + this.left(size / 2);
-    } else if (style === "classy") {
-      return this.right(size / 2) + this.rightUpArc(size / 2) + this.up(size / 2) + this.left(size);
-    } else if (style === "classy-rounded") {
-      return this.rightUpArc(size) + this.left(size);
-    }
-    return this.right(size) + this.up(size) + this.left(size);
-  }
-
-  topU(size: number, style: DotType) {
-    if (style === "rounded" || style === "extra-rounded") {
-      return this.up(size / 2) + this.topUArc(size) + this.down(size / 2);
-    } else if (style === "classy") {
-      return this.up(size) + this.left(size / 2) + this.leftDownArc(size / 2) + this.down(size / 2);
-    } else if (style === "classy-rounded") {
-      return this.up(size) + this.leftDownArc(size);
-    }
-    return this.up(size) + this.left(size) + this.down(size);
-  }
-
-  singleDot(size: number, style: DotType) {
-    if (style === "rounded" || style === "extra-rounded") {
-      // Circle
-      return `m ${size / 2} 0` + this.leftUArc(size) + this.rightUArc(size);
-    } else if (style === "classy" || style === "classy-rounded") {
-      return (
-        `m ${size / 2} 0` +
-        this.leftDownArc(size / 2) +
-        this.down(size / 2) +
-        this.right(size / 2) +
-        this.rightUpArc(size / 2) +
-        this.up(size / 2)
-      );
-    }
-    return this.down(size) + this.right(size) + this.up(size) + this.left(size);
-  }
 }

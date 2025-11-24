@@ -6,7 +6,7 @@ interface ImageSizeOptions {
   dotSize: number;
 }
 
-interface ImageSizeResult {
+export interface ImageSizeResult {
   height: number;
   width: number;
   hideYDots: number;

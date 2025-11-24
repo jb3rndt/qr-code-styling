@@ -7,8 +7,8 @@ export interface UnknownObject {
 }
 
 export type DotType = "dots" | "rounded" | "classy" | "classy-rounded" | "square" | "extra-rounded";
-export type CornerDotType = "dot" | "square" | DotType;
-export type CornerSquareType = "dot" | "square" | "extra-rounded" | DotType;
+export type CornerDotType = "dot" | DotType;
+export type CornerSquareType = "dot" | DotType;
 export type FileExtension = "svg" | "png" | "jpeg" | "webp";
 export type GradientType = "radial" | "linear";
 export type DrawType = "canvas" | "svg";
@@ -207,6 +207,4 @@ export type GetNeighbor = (x: number, y: number) => boolean;
 
 export type ExtensionFunction = (svg: SVGElement, options: Options) => void;
 
-export type Directions4 = "top" | "right" | "bottom" | "left";
-
-export type Directions8 = "top" | "right" | "bottom" | "left" | "topright" | "bottomright" | "bottomleft" | "topleft";
+export type Directions = "top" | "right" | "bottom" | "left";

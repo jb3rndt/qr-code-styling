@@ -21,10 +21,21 @@
         type: "rounded",
       },
       cornersSquareOptions: {
-        type: "square",
+        // type: "dot",
+        gradient: {
+          type: "linear",
+          rotation: Math.PI / 2,
+          colorStops: [{
+            offset: 0,
+            color: '#7EB0F1'
+          }, {
+            offset: 1,
+            color: '#527CF8'
+          }]
+        },
       },
       cornersDotOptions: {
-        type: "square",
+        // type: "dot",
       },
       backgroundOptions: {
         color: "#F1F1F1",
