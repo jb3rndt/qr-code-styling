@@ -230,14 +230,16 @@ export default class QRCodeStyling {
 
     if (extension.toLowerCase() === "svg") {
       const serializer = new XMLSerializer();
-      let source = serializer.serializeToString(element as SVGElement);
-
-      source = '<?xml version="1.0" standalone="no"?>\r\n' + source;
-      const url = `data:${getMimeType(extension)};charset=utf-8,${encodeURIComponent(source)}`;
+      const source = serializer.serializeToString(element as SVGElement);
+      const blob = new Blob([source], { type: getMimeType(extension) });
+      const url = URL.createObjectURL(blob);
       downloadURI(url, `${name}.svg`);
     } else {
-      const url = (element as HTMLCanvasElement).toDataURL(getMimeType(extension));
-      downloadURI(url, `${name}.${extension}`);
+      (element as HTMLCanvasElement).toBlob((blob) => {
+        if (blob) {
+          downloadURI(URL.createObjectURL(blob), `${name}.${extension}`);
+        }
+      }, getMimeType(extension));
     }
   }
 }
