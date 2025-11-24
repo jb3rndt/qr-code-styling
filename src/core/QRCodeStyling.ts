@@ -83,6 +83,7 @@ export default class QRCodeStyling {
           // fix blurry svg
           image.width = this._options.width;
           image.height = this._options.height;
+          this._nodeCanvas?.getContext("2d")?.clearRect(0, 0, this._options.width, this._options.height);
           this._nodeCanvas?.getContext("2d")?.drawImage(image, 0, 0, this._options.width, this._options.height);
         });
       } else {
@@ -90,6 +91,7 @@ export default class QRCodeStyling {
 
         return new Promise((resolve) => {
           image.onload = (): void => {
+            this._domCanvas?.getContext("2d")?.reset();
             this._domCanvas?.getContext("2d")?.drawImage(image, 0, 0, this._options.width, this._options.height);
             resolve();
           };

@@ -526,7 +526,7 @@ export default class QRSVGBuilder {
           y,
           height: cornersSquareSize,
           width: cornersSquareSize
-        }) ?? "#000";
+        }) ?? options.dotsOptions.color;
       return { x, y, fillColor };
     });
 
@@ -564,7 +564,7 @@ export default class QRSVGBuilder {
           y,
           height: cornersDotSize,
           width: cornersDotSize
-        }) ?? "#000";
+        }) ?? options.dotsOptions.color;
       return { x, y, fillColor };
     });
 
