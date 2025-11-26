@@ -141,6 +141,10 @@ export class RoundedPathDrawer extends ClassyPathDrawer {
   upU() {
     return up(this.size / 2) + topUArc(this.size) + down(this.size / 2);
   }
+
+  singleDot() {
+    return `m ${this.size / 2} 0` + leftUArc(this.size) + rightUArc(this.size);
+  }
 }
 
 export class ExtraRoundedPathDrawer extends RoundedPathDrawer {
@@ -162,18 +166,6 @@ export class ExtraRoundedPathDrawer extends RoundedPathDrawer {
 
   upLeft() {
     return upLeftArc(this.size);
-  }
-
-  singleDot() {
-    return (
-      `m ${this.size} 0` +
-      left(this.size / 2) +
-      leftDownArc(this.size / 2) +
-      down(this.size / 2) +
-      right(this.size / 2) +
-      rightUpArc(this.size / 2) +
-      up(this.size / 2)
-    );
   }
 }
 
