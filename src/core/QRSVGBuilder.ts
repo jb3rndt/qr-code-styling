@@ -4,7 +4,7 @@ import gradientTypes from "../constants/gradientTypes";
 import shapeTypes from "../constants/shapeTypes";
 import calculateImageSize, { ImageSizeResult } from "../tools/calculateImageSize";
 import mergeDeep from "../tools/merge";
-import { createCircleElement, createDonutElement } from "../tools/path.utils";
+import { createCircleElement, createDonutElement, createExtraRoundedElement } from "../tools/path.utils";
 import sanitizeOptions from "../tools/sanitizeOptions";
 import toDataUrl from "../tools/toDataUrl";
 import { Directions, Gradient, QRCode, Window } from "../types";
@@ -181,28 +181,34 @@ export default class QRSVGBuilder {
       backgroundPathsForComponent.get(surroundingComponent)!.push(id);
     });
 
+    const group = this._window.document.createElementNS("http://www.w3.org/2000/svg", "g");
+    group.setAttribute("fill", fillColor);
+
     for (const [id, path] of paths) {
       const element = this._window.document.createElementNS("http://www.w3.org/2000/svg", "path");
-      element.setAttribute("fill-rule", "evenodd");
       let fullPath = path;
       const backgroundPaths = backgroundPathsForComponent.get(id) ?? [];
-      backgroundPaths.forEach((backgroundPathId) => {
-        const start = backgroundIds.get(backgroundPathId)!;
-        fullPath += this.renderComponentToPath(
-          id,
-          components,
-          offset,
-          // Since all backgroundComponents are fully surrounded by the main component, we can move to the top left corner
-          { row: start.row - 1, col: start.col - 1 },
-          drawer,
-          true
-        );
-      });
+      if (backgroundPaths.length > 0) {
+        element.setAttribute("fill-rule", "evenodd");
+        backgroundPaths.forEach((backgroundPathId) => {
+          const start = backgroundIds.get(backgroundPathId)!;
+          fullPath += this.renderComponentToPath(
+            id,
+            components,
+            offset,
+            // Since all backgroundComponents are fully surrounded by the main component, we can move to the top left corner
+            { row: start.row - 1, col: start.col - 1 },
+            drawer,
+            true
+          );
+        });
+      }
       element.setAttribute("d", fullPath);
-      element.setAttribute("fill", fillColor);
 
-      this._element.appendChild(element);
+      group.appendChild(element);
     }
+
+    this._element.appendChild(group);
   }
 
   drawSingleDots(dotsMask: boolean[][], offset: { dx: number; dy: number }, fillColor: string): void {
@@ -224,8 +230,9 @@ export default class QRSVGBuilder {
     const { width, height } = this.viewboxSize();
     const gradientOptions = backgroundOptions?.gradient;
     const color = backgroundOptions?.color;
+    const isTransparent = color?.length === 9 && color.toLowerCase().endsWith("00");
 
-    if (gradientOptions || color) {
+    if (gradientOptions || (color && !isTransparent)) {
       const rect = this._window.document.createElementNS("http://www.w3.org/2000/svg", "rect");
 
       if (backgroundOptions?.round) {
@@ -539,6 +546,12 @@ export default class QRSVGBuilder {
         const donut = createDonutElement(this._window, { dx: x, dy: y }, cornersSquareSize, dotSize);
         donut.setAttribute("fill", fillColor);
         this._element.appendChild(donut);
+      }
+    } else if (cornerSquareType === "extra-rounded") {
+      for (const { x, y, fillColor } of locations) {
+        const extraRounded = createExtraRoundedElement(this._window, { dx: x, dy: y }, dotSize);
+        extraRounded.setAttribute("fill", fillColor);
+        this._element.appendChild(extraRounded);
       }
     } else {
       const cornerSquareDrawer = drawerFactory(cornerSquareType, this._dotSize);

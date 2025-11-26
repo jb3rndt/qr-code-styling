@@ -63,6 +63,33 @@ export function createDonutElement(window: Window, offset: { dx: number; dy: num
   return element;
 }
 
+export function createExtraRoundedElement(window: Window, offset: { dx: number; dy: number }, dotSize: number) {
+  const element = window.document.createElementNS("http://www.w3.org/2000/svg", "path");
+  element.setAttribute("clip-rule", "evenodd");
+  element.setAttribute(
+    "d",
+    `M ${offset.dx} ${offset.dy + 3 * dotSize}` +
+      down(dotSize) +
+      downRightArc(3 * dotSize) +
+      right(dotSize) +
+      rightUpArc(3 * dotSize) +
+      up(dotSize) +
+      upLeftArc(3 * dotSize) +
+      left(dotSize) +
+      leftDownArc(3 * dotSize) +
+      `M ${offset.dx + 3 * dotSize} ${offset.dy + dotSize}` +
+      `h ${1 * dotSize}` +
+      `a ${2 * dotSize} ${2 * dotSize}, 0, 0, 1, ${dotSize * 2} ${dotSize * 2}` +
+      `v ${1 * dotSize}` +
+      `a ${2 * dotSize} ${2 * dotSize}, 0, 0, 1, ${-dotSize * 2} ${dotSize * 2}` +
+      `h ${-1 * dotSize}` +
+      `a ${2 * dotSize} ${2 * dotSize}, 0, 0, 1, ${-dotSize * 2} ${-dotSize * 2}` +
+      `v ${-1 * dotSize}` +
+      `a ${2 * dotSize} ${2 * dotSize}, 0, 0, 1, ${dotSize * 2} ${-dotSize * 2}`
+  );
+  return element;
+}
+
 export function createCircleElement(window: Window, offset: { dx: number; dy: number }, size: number) {
   const element = window.document.createElementNS("http://www.w3.org/2000/svg", "circle");
   element.setAttribute("cx", String(offset.dx + size / 2));
